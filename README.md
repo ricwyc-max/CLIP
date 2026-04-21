@@ -23,6 +23,12 @@
 ## 3. 模型架构（概览）
 
 *（待补充：此处将放入整体架构图）*
+1. **对比试验**: 
+- 使用基本GAN网络进行图像生成、CLIP进行引导(CAFE-GAN, RATLIP等)
+- 使用Style-GAN网络进行图像生成、CLIP进行引导（CLIP2GAN）
+- 使用Stable Diffusion网络进行图像生成、CLIP进行引导（ DALL·E 2 、DiffusionCLIP ）
+- 使用Diffusion GAN网络进行图像生成、CLIP进行引导（UFOGen 、clip2latent ）
+- 使用Transformer网络进行图像生成、CLIP进行引导（DALL·E）
 
 **核心流程**：
 1.  **文本编码**：输入 Prompt \( \rightarrow \) CLIP Text Encoder \( \rightarrow \) 文本嵌入 \( T \)
@@ -39,7 +45,8 @@
 
 -   **数据集**：（待补充：如 MS-COCO， CUB-200， 或自定义数据集）
 -   **评估指标**：FID（图像质量）、CLIP-Score（语义一致性）、人工评估
--   **对比实验**：无 CLIP 引导的生成器 vs. 有 CLIP 引导的生成器
+-   **对比实验**：CLIP 引导的不同质量生成器对比
+-   **消融实验**：无 CLIP 引导的生成器 vs. 有 CLIP 引导的生成器
 
 ## 5. 当前进度
 
@@ -59,6 +66,18 @@ cd [项目目录]
 pip install -r requirements.txt
 python train.py --config configs/clip_guidance.yaml
 ```
+
+## Requirements
+
+主要依赖：
+- 等待完善
+
+
+其他依赖（根据对比实验按需安装）：
+- 等待完善
+
+
+详细版本见 `requirements.txt`。
 
 ## 7. 团队分工
 
