@@ -41,10 +41,10 @@
 
 - **使用mobileStyleGAN网络进行图像生成、mobileCLIP网络进行图像引导**
   - 具体方案：
-1、使用预训练mobileStyleGAN进行图像生成，预训练mobileStyleGAN权重获取参考地址：https://github.com/bes-dev/MobileStyleGAN.pytorch
-2、使用预训练mobileCLIP进行文本编码，预训练mobileCLIP权重获取参考地址：https://github.com/mlfoundations/open_clip
-3、自建 Bridge MLP 隐空间向量语义转换层
-4、进行不同损失函数的消融实验
+1、使用预训练mobileStyleGAN进行图像生成，预训练mobileStyleGAN权重获取参考地址：https://github.com/bes-dev/MobileStyleGAN.pytorch  
+2、使用预训练mobileCLIP进行文本编码，预训练mobileCLIP权重获取参考地址：https://github.com/mlfoundations/open_clip  
+3、自建 Bridge MLP 隐空间向量语义转换层  
+4、进行不同损失函数的消融实验  
 
   - 模型架构：
 
