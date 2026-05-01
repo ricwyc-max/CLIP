@@ -1,10 +1,10 @@
 __author__ = 'Eric'
 
-#配置代理
+#配置代理(挂梯子下HF社区的开源模型需要)
 import os
 # os.environ['HTTP_PROXY'] = 'http://127.0.0.1:7890'
 # os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:7890'
-# 必须在导入 open_clip 之前设置（配置HF的地址，模型直接下载到./model位置)
+# 必须在导入 open_clip 之前设置（配置HF的缓存地址，模型直接下载到./model位置)
 os.environ['HF_HOME'] = './model'  # 改成你的目标路径
 
 #导包
@@ -19,7 +19,7 @@ tokenizer = open_clip.get_tokenizer('ViT-B-32')
 
 #2、载入图像和文字编码
 image = preprocess(Image.open("docs/dog.jpg")).unsqueeze(0)
-texts = ["a diagram", "a dog", "a cat"]
+texts = ["a small dog", "a fat dog", "a strong dog"]
 text = tokenizer(texts)
 
 #3、进行推理计算
