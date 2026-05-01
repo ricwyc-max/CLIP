@@ -72,8 +72,8 @@
 
 ## 5. 当前进度
 
--   [ ] 文献调研：理解 CLIP 的对比学习原理及在文生图中的应用
--   [ ] 环境配置与 CLIP 预训练权重加载
+-   [x] 文献调研：理解 CLIP 的对比学习原理及在文生图中的应用
+-   [x] 环境配置与 CLIP 预训练权重加载
 -   [ ] 搭建生成器骨架
 -   [ ] 实现 CLIP 引导的损失函数
 -   [ ] 训练与调试
@@ -110,7 +110,26 @@ python train.py --config configs/clip_guidance.yaml
 -   成员 刘健韬：负责生成器架构设计与训练循环
 -   成员 吴尧承、刘健韬：负责数据集处理与评估指标实现
 
-
+## 8. 项目架构
+---
+```text
+CLIP
+├── CLIP  CLIP测试路径
+│   └── mobileCLIP
+│       ├── docs
+│       │   └── dog.jpg   #测试图片
+│       ├── model   #CLIP模型文件
+│       └── openclip.py   #CLIP测试程序
+├── LICENSE   许可
+├── README.md   说明文档
+├── StyleGAN   StyleGAN测试路径
+│   └── mobileStyleGAN
+└── 参考文献
+    ├── Karras 等 - 2018 - Progressive Growing of GANs for Improved Quality, Stability, and Variation.pdf
+    ├── Karras 等 - 2019 - A Style-Based Generator Architecture for Generative Adversarial Networks.pdf
+    ├── Radford 等 - 2021 - Learning Transferable Visual Models From Natural Language Supervision.pdf
+    └── Wang 等 - 2022 - CLIP2GAN Towards Bridging Text with the Latent Space of GANs.pdf
+```
 
 ## Citing
 ---
