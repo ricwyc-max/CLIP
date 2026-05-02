@@ -96,12 +96,132 @@ python train.py --config configs/clip_guidance.yaml
 ---
 
 主要依赖：
-- 等待完善
+<details>
+  <summary>📂 点击展开/收起：具体依赖（太长已折叠）</summary>  
 
-
-其他依赖（根据对比实验按需安装）：
-- 等待完善
-
+```text
+Package                   Version
+------------------------- ------------
+addict                    2.4.0
+aiohappyeyeballs          2.6.1
+aiohttp                   3.13.5
+aiosignal                 1.4.0
+annotated-doc             0.0.4
+anyio                     4.12.1
+arrow                     1.4.0
+async-timeout             5.0.1
+attrs                     26.1.0
+beautifulsoup4            4.14.3
+boto3                     1.42.97
+botocore                  1.42.97
+bravado                   11.1.0
+bravado-core              6.3.1
+cattrs                    25.3.0
+certifi                   2026.4.22
+charset-normalizer        3.4.7
+click                     8.1.8
+colorama                  0.4.6
+coremltools               9.0
+exceptiongroup            1.3.1
+filelock                  3.19.1
+fqdn                      1.5.1
+frozenlist                1.8.0
+fsspec                    2025.10.0
+ftfy                      6.3.1
+future                    1.0.0
+gdown                     5.2.2
+gitdb                     4.0.12
+GitPython                 3.1.49
+h11                       0.16.0
+hf-xet                    1.4.3
+httpcore                  1.0.9
+httpx                     0.28.1
+huggingface_hub           1.8.0
+idna                      3.13
+importlib_resources       6.5.2
+isoduration               20.11.0
+Jinja2                    3.1.6
+jmespath                  1.1.0
+jsonpointer               3.0.0
+jsonref                   1.1.0
+jsonschema                4.25.1
+jsonschema-specifications 2025.9.1
+kornia                    0.8.2
+kornia_rs                 0.1.10
+lark                      1.3.1
+lightning-utilities       0.15.2
+markdown-it-py            3.0.0
+MarkupSafe                3.0.2
+mdurl                     0.1.2
+monotonic                 1.6
+mpmath                    1.3.0
+msgpack                   1.1.2
+multidict                 6.7.1
+neptune-client            1.14.0.post2
+networkx                  3.2.1
+ninja                     1.13.0
+numpy                     2.0.2
+oauthlib                  3.3.1
+open_clip_torch           3.3.0
+opencv-python             4.13.0.92
+packaging                 26.2
+pandas                    2.3.3
+pillow                    11.3.0
+pip                       26.0.1
+piq                       0.8.0
+propcache                 0.4.1
+protobuf                  6.33.6
+psutil                    7.2.2
+pyaml                     26.2.1
+Pygments                  2.20.0
+PyJWT                     2.12.1
+PySocks                   1.7.1
+python-dateutil           2.9.0.post0
+pytorch-fid               0.3.0
+pytorch-lightning         2.6.0
+pytorch_wavelets          1.3.0
+pytz                      2026.1.post1
+PyWavelets                1.6.0
+PyYAML                    6.0.3
+referencing               0.36.2
+regex                     2026.1.15
+requests                  2.32.5
+requests-oauthlib         2.0.0
+rfc3339-validator         0.1.4
+rfc3986-validator         0.1.1
+rfc3987-syntax            1.1.0
+rich                      15.0.0
+rpds-py                   0.27.1
+s3transfer                0.16.1
+safetensors               0.7.0
+scipy                     1.13.1
+setuptools                80.9.0
+shellingham               1.5.4
+simplejson                4.1.1
+six                       1.17.0
+smmap                     5.0.3
+soupsieve                 2.8.3
+swagger-spec-validator    3.0.4
+sympy                     1.14.0
+timm                      1.0.26
+torch                     2.7.1+cu118
+torchaudio                2.7.1+cu118
+torchmetrics              1.8.2
+torchvision               0.22.1+cu118
+tqdm                      4.67.3
+typer                     0.23.2
+typing_extensions         4.15.0
+tzdata                    2026.2
+uri-template              1.3.0
+urllib3                   1.26.20
+wcwidth                   0.6.0
+webcolors                 24.11.1
+websocket-client          1.9.0
+wheel                     0.47.0
+yarl                      1.22.0
+zipp                      3.23.1
+```
+</details> 
 
 详细版本见 `requirements.txt`。
 
@@ -116,16 +236,24 @@ python train.py --config configs/clip_guidance.yaml
 ---
 ```text
 CLIP
+├── .gitattributes
+├── .gitignore git忽略文件
 ├── CLIP  CLIP测试路径
 │   └── mobileCLIP
 │       ├── docs
 │       │   └── dog.jpg   #测试图片
 │       ├── model   #CLIP模型文件
 │       └── openclip.py   #CLIP测试程序
+├── CLIP2GAN.py   CLIP以及GAN网络类封装
 ├── LICENSE   许可
 ├── README.md   说明文档
 ├── StyleGAN   StyleGAN测试路径
 │   └── mobileStyleGAN
+│       └── MobileStyleGAN.pytorch
+├── bridgeNetwork.py  桥接MLP网络封装
+├── dataset   数据集文件夹
+├── lossFunction.py   损失函数模块
+├── training.py   训练模块
 └── 参考文献
     ├── Karras 等 - 2018 - Progressive Growing of GANs for Improved Quality, Stability, and Variation.pdf
     ├── Karras 等 - 2019 - A Style-Based Generator Architecture for Generative Adversarial Networks.pdf
