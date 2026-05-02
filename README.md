@@ -1,4 +1,6 @@
 # 项目名称：基于 CLIP 引导的文本生成图像大模型
+[![查看项目看板](https://img.shields.io/badge/github-Project-blue?logo=github)](https://github.com/ricwyc-max/CLIP)
+---
 
 > **课程**：生成式人工智能  
 > **状态**：进行中 / 基础架构搭建  
@@ -6,7 +8,7 @@
 > **指导老师邮箱**：pychen@hhu.edu.cn  
 > **大作业成员邮箱**：134074852@qq.com  
 
-[![查看项目看板](https://img.shields.io/badge/github-Project-blue?logo=github)](https://github.com/ricwyc-max/CLIP)
+
 
 ## 1. 项目简介
 
