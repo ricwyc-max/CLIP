@@ -6,6 +6,8 @@
 > **指导老师邮箱**：pychen@hhu.edu.cn  
 > **大作业成员邮箱**：134074852@qq.com  
 
+[![查看项目看板](https://img.shields.io/badge/github-Project-blue?logo=github)](https://github.com/ricwyc-max/CLIP)
+
 ## 1. 项目简介
 
 本项目旨在构建一个**文本到图像Text-to-Image**的生成模型。在文生图任务中，核心挑战在于如何让模型“理解”自然语言描述，并生成与之语义对齐的高保真图像。
