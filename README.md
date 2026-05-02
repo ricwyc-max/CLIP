@@ -48,6 +48,19 @@
 2、使用预训练mobileCLIP进行文本编码，预训练mobileCLIP权重获取参考地址：https://github.com/mlfoundations/open_clip  
 3、自建 Bridge MLP 隐空间向量语义转换层  
 4、进行不同损失函数的消融实验  
+  - 模型输出展示：  
+
+| 图片 | 说明 |
+|------|------|
+| ![图片1](./CLIP/mobileCLIP/docs/dog.jpg "测试图片") | mobileCLIP测试图像 |
+| ![图片2](./CLIP/mobileCLIP/docs/test.png "展示结果") | mobileCLIP展示结果 |  
+
+| 图片 | mobilestyleGAN随机输出结果 |
+|------|------|
+| <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test.png" width="150">  |  <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test1.png" width="150">  |
+| <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test2.png" width="150">  |  <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test3.png" width="150">  |
+| <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test4.png" width="150">  |  <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test5.png" width="150">  |
+
 
   - 模型架构：
 
