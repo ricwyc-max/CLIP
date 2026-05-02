@@ -7,5 +7,5 @@ def model_zoo(name, zoo_path="configs/model_zoo.json"):
     if name in zoo:
         ckpt = download_ckpt(**zoo[name])
     else:
-        ckpt = torch.load(name, map_location="cpu")
+        ckpt = torch.load(name, map_location="cpu", weights_only=False)
     return ckpt

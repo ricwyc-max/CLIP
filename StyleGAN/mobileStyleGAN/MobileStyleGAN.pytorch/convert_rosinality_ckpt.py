@@ -75,7 +75,7 @@ def create_config(cfg_path, ckpt_mnet, ckpt_snet):
 
 
 def main(args):
-    ckpt = torch.load(args.ckpt, map_location="cpu")
+    ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=False)
     print(f"extract mapping network to {args.ckpt_mnet}")
     style_dim = extract_mnet(ckpt, args.ckpt_mnet)
     print(f"extract synthesis network to {args.ckpt_snet}")

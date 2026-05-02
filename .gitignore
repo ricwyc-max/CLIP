@@ -1,3 +1,4 @@
 /.idea
 /CLIP/mobileCLIP/model
 /CLIP/mobileCLIP/__pycache__
+StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/model/mobilestylegan_ffhq_v2.ckpt

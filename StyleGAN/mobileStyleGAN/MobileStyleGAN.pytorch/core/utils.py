@@ -27,7 +27,7 @@ def download_ckpt(url, name, md5):
     print(f"load pretrained model: {name}...")
     ckpt_path = f"/tmp/{name}"
     gdown.cached_download(url, ckpt_path, md5=md5)
-    ckpt = torch.load(ckpt_path, map_location="cpu")
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     return ckpt
 
 
