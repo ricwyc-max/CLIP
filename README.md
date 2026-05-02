@@ -24,7 +24,7 @@
 
 *（待补充：此处将放入整体架构图）*
 1. **对比试验**: 
-- **使用基本GAN网络进行图像生成、CLIP进行引导(CAFE-GAN, RATLIP等)**
+- **使用基本DCGAN网络进行图像生成、CLIP进行引导(CAFE-GAN, RATLIP等)**
   - 具体方案：
 
 - **使用Style-GAN网络进行图像生成、CLIP进行引导（CLIP2GAN）**
@@ -40,7 +40,7 @@
   - 具体方案：
 
 - **使用mobileStyleGAN网络进行图像生成、mobileCLIP网络进行图像引导**
-  - 具体方案：
+  - 具体方案：  
 1、使用预训练mobileStyleGAN进行图像生成，预训练mobileStyleGAN权重获取参考地址：https://github.com/bes-dev/MobileStyleGAN.pytorch  
 2、使用预训练mobileCLIP进行文本编码，预训练mobileCLIP权重获取参考地址：https://github.com/mlfoundations/open_clip  
 3、自建 Bridge MLP 隐空间向量语义转换层  
@@ -65,7 +65,9 @@
 
 ## 4. 实验计划
 
--   **数据集**：（待补充：如 MS-COCO， CUB-200， 或自定义数据集）
+-   **数据集**：  
+CelebAMask-HQ(https://github.com/switchablenorms/CelebAMask-HQ)  
+CelebA-HQ(git clone https://www.modelscope.cn/datasets/OmniData/CelebA-HQ.git) (https://huggingface.co/datasets/iamivan11/CelebA-HQ-zip)
 -   **评估指标**：FID（图像质量）、CLIP-Score（语义一致性）、人工评估
 -   **对比实验**：CLIP 引导的不同质量生成器对比
 -   **消融实验**：无 CLIP 引导的生成器 vs. 有 CLIP 引导的生成器
@@ -74,7 +76,7 @@
 
 -   [x] 文献调研：理解 CLIP 的对比学习原理及在文生图中的应用
 -   [x] 环境配置与 CLIP 预训练权重加载
--   [ ] 搭建生成器骨架
+-   [x] 搭建生成器骨架
 -   [ ] 实现 CLIP 引导的损失函数
 -   [ ] 训练与调试
 -   [ ] 探索更多的生成器和编码器类型
