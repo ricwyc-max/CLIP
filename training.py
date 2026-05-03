@@ -63,7 +63,9 @@ exp_name = "exp1"           # 实验文件夹名称（用户填写）
 save_interval = 1           # 每 N 轮保存一次图像（完整 batch 网格图）
 img_save_interval = 50    # 每 N 张图片保存一次单张生成图
 use_D = True                # 是否使用判别器
-lam_L_G = 1                 # L_G 的权重系数
+use_lpips = True            # 是否使用 LPIPS 感知损失
+lam_L_rec = 100             # L_rec 的权重系数（MSE 量级小，需要放大）
+lam_lpips = 10              # LPIPS 的权重系数（LPIPS 量级约 0.1~2，乘 10 与 L_rec 量级平衡）
 epoches = 5               # 训练轮数
 batch_size = 1             # 批次大小
 lr = 0.0001                 # 学习率
@@ -74,10 +76,11 @@ lr = 0.0001                 # 学习率
 #                               初始化基础网络架构
 #
 # ============================================================================
-def loadModel(use_D=True):
+def loadModel(use_D=True, use_lpips=True):
     """
     加载模型函数，方便后续做消融实验
-    :param use_D:是否使用判别器
+    :param use_D:    是否使用判别器
+    :param use_lpips:是否使用 LPIPS 感知损失
     :return:
     """
     # 初始化CLIP以及GAN网络
@@ -85,16 +88,21 @@ def loadModel(use_D=True):
     birdgeNetwork = Bridge_MLP().to(device)
 
     if use_D == True:
-        D = Discriminator(size=1024, channels_in=3).to(device)
+        D = Discriminator(size=1024, channels_in=3, activate=False).to(device)
     else:
         D = None
+
+    if use_lpips:
+        lpips_fn = LF.LPIPS_AlexNet(device=device)
+    else:
+        lpips_fn = None
 
     optimizer_brig = torch.optim.Adam(birdgeNetwork.parameters(), lr=lr)
     if use_D == True:
         optimizer_D = torch.optim.Adam(D.parameters(), lr=lr)
     else:
         optimizer_D = None
-    return CLIPandGAN, birdgeNetwork, D, optimizer_brig, optimizer_D
+    return CLIPandGAN, birdgeNetwork, D, lpips_fn, optimizer_brig, optimizer_D
 
 
 # ============================================================================
@@ -104,6 +112,7 @@ def loadModel(use_D=True):
 # ============================================================================
 def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
              D=None, optimizer_D=None, use_D=True,
+             lpips_fn=None, use_lpips=True,
              exp_name="exp1", save_interval=5, img_save_interval=1000):
     """
     训练循环，支持消融实验、图像保存、损失记录、模型保存
@@ -115,6 +124,8 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
     :param D:                   判别器（use_D=False 时为 None）
     :param optimizer_D:         判别器优化器（use_D=False 时为 None）
     :param use_D:               是否使用判别器
+    :param lpips_fn:            LPIPS 损失函数（use_lpips=False 时为 None）
+    :param use_lpips:           是否使用 LPIPS 感知损失
     :param exp_name:            实验名称，用于创建结果文件夹
     :param save_interval:       每隔多少轮保存一次图像（batch 网格图）
     :param img_save_interval:   每隔多少张图片保存一次单张生成图
@@ -148,6 +159,7 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
         "L_D": [],
         "L_G": [],
         "L_rec": [],
+        "L_lpips": [],
         "L_total": []
     }
     best_loss = float('inf')
@@ -170,6 +182,7 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
         epoch_L_D = 0.0
         epoch_L_G = 0.0
         epoch_L_rec = 0.0
+        epoch_L_lpips = 0.0
         epoch_L_total = 0.0
         batch_count = 0
 
@@ -178,9 +191,15 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
             real_imgs = real_imgs.to(device)
             batch_count += 1
 
-            # real_imgs_clip: (B, 3, 224, 224), CLIP 预处理后（Resize+Normalize）
-            # 直接在 GPU 上做，无需 PIL 转换
-            real_imgs_clip = F.interpolate(real_imgs, size=224, mode='bicubic', align_corners=False)
+            # real_imgs_clip: (B, 3, 224, 224), CLIP 预处理（与 openclip 一致）
+            # Resize(224): 短边缩放到 224，保持比例 → CenterCrop(224) → Normalize
+            _, _, h, w = real_imgs.shape
+            scale = 224 / min(h, w)
+            new_h, new_w = int(h * scale), int(w * scale)
+            real_imgs_clip = F.interpolate(real_imgs, size=(new_h, new_w), mode='bicubic', align_corners=False)
+            top = (new_h - 224) // 2
+            left = (new_w - 224) // 2
+            real_imgs_clip = real_imgs_clip[:, :, top:top+224, left:left+224]
             real_imgs_clip = (real_imgs_clip - clip_mean) / clip_std
 
             # real_imgs_scaled: (B, 3, 1024, 1024), 值域 [-1,1]
@@ -195,7 +214,10 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
             # ====================================
             with torch.no_grad():
                 style_vector = birdgeNetwork(imgs_feat)
-                fake_imgs = CLIPandGAN.synthesis_net(style_vector.to(device))["img"]
+                # 截断：将 style 拉向均值，防止偏离过远导致生成质量下降
+                style_mean = CLIPandGAN.style_mean
+                style_vector = style_mean + 0.5 * (style_vector - style_mean)
+                fake_imgs = CLIPandGAN.synthesis_net(style_vector.to(device))["img"].clamp(-1, 1)
 
             if use_D and D is not None and optimizer_D is not None:
                 loss_D = LF.L_D(D, real_imgs_scaled, fake_imgs)
@@ -211,7 +233,9 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
             # ====================================
             with torch.enable_grad():
                 style_vector = birdgeNetwork(imgs_feat)
-                fake_imgs = CLIPandGAN.synthesis_net(style_vector.to(device))["img"]
+                style_mean = CLIPandGAN.style_mean
+                style_vector = style_mean + 0.5 * (style_vector - style_mean)
+                fake_imgs = CLIPandGAN.synthesis_net(style_vector.to(device))["img"].clamp(-1, 1)
 
                 if use_D and D is not None:
                     loss_G = LF.L_G(D, fake_imgs)
@@ -219,7 +243,13 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
                     loss_G = torch.tensor(0.0, device=device)
 
                 loss_rec = LF.L_rec(real_imgs_scaled, fake_imgs)
-                loss_total = loss_rec + loss_G * lam_L_G
+
+                if use_lpips and lpips_fn is not None:
+                    loss_lpips = lpips_fn(real_imgs_scaled, fake_imgs)
+                else:
+                    loss_lpips = torch.tensor(0.0, device=device)
+
+                loss_total = loss_rec * lam_L_rec + loss_lpips * lam_lpips + loss_G
 
             optimizer_brig.zero_grad()
             loss_total.backward()
@@ -227,6 +257,7 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
 
             epoch_L_G += loss_G.item()
             epoch_L_rec += loss_rec.item()
+            epoch_L_lpips += loss_lpips.item()
             epoch_L_total += loss_total.item()
 
             # 每个 batch 打印一次日志
@@ -234,7 +265,8 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
             print(f"  [Epoch {epoch}] Batch {batch_count}/{total_batches} | "
                   f"Imgs {imgs_done}/{total_imgs} | "
                   f"L_D={loss_D.item():.4f}  L_G={loss_G.item():.4f}  "
-                  f"L_rec={loss_rec.item():.4f}  L_total={loss_total.item():.4f}")
+                  f"L_rec={loss_rec.item():.4f}  L_lpips={loss_lpips.item():.4f}  "
+                  f"L_total={loss_total.item():.4f}")
 
             # 每 img_save_interval 张图片保存一张生成图和对应的原图
             total_imgs_done += batch_size
@@ -251,17 +283,20 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
         avg_L_D = epoch_L_D / batch_count
         avg_L_G = epoch_L_G / batch_count
         avg_L_rec = epoch_L_rec / batch_count
+        avg_L_lpips = epoch_L_lpips / batch_count
         avg_L_total = epoch_L_total / batch_count
 
         loss_history["epoch"].append(epoch)
         loss_history["L_D"].append(avg_L_D)
         loss_history["L_G"].append(avg_L_G)
         loss_history["L_rec"].append(avg_L_rec)
+        loss_history["L_lpips"].append(avg_L_lpips)
         loss_history["L_total"].append(avg_L_total)
 
         print(f"[Epoch {epoch}/{epoches}] "
               f"L_D={avg_L_D:.4f}  L_G={avg_L_G:.4f}  "
-              f"L_rec={avg_L_rec:.4f}  L_total={avg_L_total:.4f}")
+              f"L_rec={avg_L_rec:.4f}  L_lpips={avg_L_lpips:.4f}  "
+              f"L_total={avg_L_total:.4f}")
 
         # ====================================================================
         # 保存最佳模型（按 L_total）
@@ -304,7 +339,7 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
     # ========================================================================
     # 绘制损失曲线
     # ========================================================================
-    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    fig, axes = plt.subplots(2, 3, figsize=(18, 8))
     fig.suptitle(f"Training Loss - {exp_name}", fontsize=14)
 
     axes[0, 0].plot(loss_history["epoch"], loss_history["L_D"], 'b-')
@@ -317,8 +352,13 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
     axes[0, 1].set_xlabel("Epoch")
     axes[0, 1].set_ylabel("Loss")
 
-    axes[1, 0].plot(loss_history["epoch"], loss_history["L_rec"], 'g-')
-    axes[1, 0].set_title("L_rec (Reconstruction)")
+    axes[0, 2].plot(loss_history["epoch"], loss_history["L_rec"], 'g-')
+    axes[0, 2].set_title("L_rec (Reconstruction MSE)")
+    axes[0, 2].set_xlabel("Epoch")
+    axes[0, 2].set_ylabel("Loss")
+
+    axes[1, 0].plot(loss_history["epoch"], loss_history["L_lpips"], 'c-')
+    axes[1, 0].set_title("L_lpips (Perceptual)")
     axes[1, 0].set_xlabel("Epoch")
     axes[1, 0].set_ylabel("Loss")
 
@@ -326,6 +366,8 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
     axes[1, 1].set_title("L_total")
     axes[1, 1].set_xlabel("Epoch")
     axes[1, 1].set_ylabel("Loss")
+
+    axes[1, 2].axis('off')  # 空位
 
     plt.tight_layout()
     curve_path = os.path.join(exp_dir, "loss_curve.png")
@@ -340,7 +382,7 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
 #
 # ============================================================================
 if __name__ == "__main__":
-    CLIPandGAN, birdgeNetwork, D, optimizer_brig, optimizer_D = loadModel(use_D=use_D)
+    CLIPandGAN, birdgeNetwork, D, lpips_fn, optimizer_brig, optimizer_D = loadModel(use_D=use_D, use_lpips=use_lpips)
     training(
         epoches=epoches,
         CLIPandGAN=CLIPandGAN,
@@ -349,6 +391,8 @@ if __name__ == "__main__":
         D=D,
         optimizer_D=optimizer_D,
         use_D=use_D,
+        lpips_fn=lpips_fn,
+        use_lpips=use_lpips,
         exp_name=exp_name,
         save_interval=save_interval,
         img_save_interval=img_save_interval

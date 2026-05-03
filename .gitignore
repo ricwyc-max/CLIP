@@ -5,3 +5,6 @@ StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/model/mobilestylegan_ffhq_v2.ckpt
 /dataset/CelebA-HQ
 /dataset/CelebAMask-HQ
 /__pycache__
+/results
+/AlexNet/model
+test_clip2gan.png

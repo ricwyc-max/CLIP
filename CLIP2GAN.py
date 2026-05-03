@@ -322,23 +322,67 @@ class CLIP2GAN:
 # 使用示例
 # ================================================================
 if __name__ == "__main__":
-    # 初始化
+    from PIL import Image as PILImage
+    import time
+
+    print("开始初始化...")
+    t0 = time.time()
     model = CLIP2GAN(device="cuda")
+    print(f"初始化耗时: {time.time() - t0:.1f}s")
 
-    # --- 1. 文本编码 ---
-    texts = ["a cat", "a dog", "a bird"]
+    texts = ["a cat", "a dog", "a bird", "a person"]
     text_feat = model.encode_text(texts)
-    print(f"文本特征 shape: {text_feat.shape}")  # (3, 512)
 
-    # --- 2. 随机生成图片 ---
+    # ================================================================
+    # 实验1: z_to_image 生成图 → preprocess_img → CLIP 编码
+    # （训练时的 pipeline 方式）
+    # ================================================================
+    print("\n" + "=" * 50)
+    print("实验1: z_to_image → preprocess_img → CLIP")
+    print("=" * 50)
+
     z = torch.randn(1, 512)
-    img = model.z_to_image(z, truncated=True)
-    print(f"生成图片 shape: {img.shape}")  # (1, 3, 1024, 1024)
+    fake_img = model.z_to_image(z, truncated=True)
+    model.save(fake_img[0], "test_clip2gan.png")
+    print(f"生成图 shape: {fake_img.shape}, range: [{fake_img.min():.2f}, {fake_img.max():.2f}]")
 
-    # --- 3. 评估生成图片与文本的相似度 ---
-    img_feat = model.encode_image(model.preprocess_img(img[0]))
-    sim = model.similarity(text_feat, img_feat)
-    print(f"相似度: {sim}")  # (3, 1)
+    img_tensor1 = model.preprocess_img(fake_img[0])
+    print(f"preprocess_img: shape={img_tensor1.shape}, min={img_tensor1.min():.4f}, max={img_tensor1.max():.4f}")
 
-    # --- 4. 保存图片 ---
-    model.save(img[0], "test_clip2gan.png")
+    img_feat1 = model.encode_image(img_tensor1)
+    sim1 = model.similarity(text_feat, img_feat1)
+    probs1 = (100.0 * img_feat1 @ text_feat.T).softmax(dim=-1)
+    print(f"相似度: {sim1.flatten().tolist()}")
+    print(f"概率: {[f'{p:.4f}' for p in probs1.flatten().tolist()]}")
+
+    # ================================================================
+    # 实验2: 加载保存的图片 → clip_preprocess → CLIP 编码
+    # （和 openclip.py 一致的方式）
+    # ================================================================
+    print("\n" + "=" * 50)
+    print("实验2: 加载图片 → clip_preprocess → CLIP")
+    print("=" * 50)
+
+    pil_img = PILImage.open("test_clip2gan.png")
+    print(f"加载图片 size: {pil_img.size}, mode: {pil_img.mode}")
+
+    img_tensor2 = model.clip_preprocess(pil_img).unsqueeze(0)
+    print(f"clip_preprocess: shape={img_tensor2.shape}, min={img_tensor2.min():.4f}, max={img_tensor2.max():.4f}")
+
+    img_feat2 = model.encode_image(img_tensor2)
+    sim2 = model.similarity(text_feat, img_feat2)
+    probs2 = (100.0 * img_feat2 @ text_feat.T).softmax(dim=-1)
+    print(f"相似度: {sim2.flatten().tolist()}")
+    print(f"概率: {[f'{p:.4f}' for p in probs2.flatten().tolist()]}")
+
+    # ================================================================
+    # 对比
+    # ================================================================
+    print("\n" + "=" * 50)
+    print("对比结果")
+    print("=" * 50)
+    feat_diff = (img_feat1 - img_feat2).norm().item()
+    print(f"特征 L2 差异: {feat_diff:.6f}")
+    print(f"特征一致: {torch.allclose(img_feat1, img_feat2, atol=1e-4)}")
+    print(f"实验1 概率: {[f'{p:.4f}' for p in probs1.flatten().tolist()]}")
+    print(f"实验2 概率: {[f'{p:.4f}' for p in probs2.flatten().tolist()]}")
