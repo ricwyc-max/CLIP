@@ -323,7 +323,7 @@ class CLIP2GAN:
 # ================================================================
 if __name__ == "__main__":
     # 初始化
-    model = CLIP2GAN(device="cpu")
+    model = CLIP2GAN(device="cuda")
 
     # --- 1. 文本编码 ---
     texts = ["a cat", "a dog", "a bird"]
