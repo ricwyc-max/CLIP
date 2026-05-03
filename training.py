@@ -88,7 +88,7 @@ def loadModel(use_D=True, use_lpips=True):
     birdgeNetwork = Bridge_MLP().to(device)
 
     if use_D == True:
-        D = Discriminator(size=1024, channels_in=3, activate=False).to(device)
+        D = Discriminator(size=1024, channels_in=3).to(device)
     else:
         D = None
 

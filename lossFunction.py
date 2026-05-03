@@ -8,12 +8,14 @@ __author__ = 'Eric'
 #   1. L_rec   — 重建损失（衡量生成图片与目标图片的像素级差异）
 #   2. L_D     — WGAN-GP 判别器损失（标准 GAN 损失 + 梯度惩罚）
 #   3. L_G     — 生成器对抗损失（让生成图片骗过判别器）
+#   4.Perceptual loss - 感知损失（让生成图片关注细节）
 #
 # 数学公式：
-#   L_rec  = MSE(x, x_recon)                         （均方误差）
-#   L_D    = E[D(fake)] - E[D(real)]                 （WGAN Wasserstein 损失）
-#          + λ × E[(||∇D(x')||₂ - 1)²]              （梯度惩罚 GP）
-#   L_G    = -E[D(G(z))]                             （生成器 Wasserstein 损失）
+#   L_rec   = MSE(x, x_recon)                                        （均方误差）
+#   L_D     = -{E[log D(x)] + E[log(1 - D(x'))]}                    （原始 GAN 判别器损失）
+#           + λ × E[(||∇D(x')||₂ - 1)²]                             （梯度惩罚 GP）
+#   L_G     = E[log(1 - D(x'))]                                      （生成器损失）
+#   L_lpips = ∑_l (1/H_l W_l) ∑_{h,w} ‖w_l ⊙ (y_l - y'_l)‖₂²   （LPIPS 感知损失）
 #
 # 训练流程：
 #   1. 训练判别器 D: 最小化 L_D（给真实图高分，给假图低分）
@@ -64,122 +66,51 @@ def L_rec(x, x_recon):
 
 def L_D(D, real_imgs, fake_imgs, lambda_gp=10.0):
     """
-    WGAN-GP 判别器损失（Discriminator Loss with Gradient Penalty）
+    判别器损失（Discriminator Loss, 原始 GAN + 梯度惩罚）
 
-    由两部分组成：
-    1. Wasserstein 损失：让判别器 D 给真实图片高分，给生成图片低分
-    2. 梯度惩罚 (GP)：约束判别器的梯度范数接近 1，防止训练不稳定
-
-    数学公式:
-        L_D = E[D(fake)] - E[D(real)] + λ × E[(||∇D(x')||₂ - 1)²]
+    公式:
+        L_D = -{E[log D(x)] + E[log(1 - D(x'))]} + λ × E[(||∇D(x')||₂ - 1)²]
 
     各项含义:
-        - E[D(real)]  : 真实图片的判别分数，越大越好
-        - E[D(fake)]  : 生成图片的判别分数，越小越好
-        - 梯度惩罚     : 防止判别器梯度爆炸或消失，保持训练稳定
+        - E[log D(x)]       : 真实图片被判为真的概率，越大越好（loss 中取负）
+        - E[log(1 - D(x'))] : 假图被判为假的概率，越大越好（loss 中取负）
+        - 梯度惩罚           : 约束判别器梯度范数接近 1，保持训练稳定
 
     参数:
-        D:         判别器模型 (nn.Module)
-                   - 输入: 图片张量 (B, 3, H, W)
-                   - 输出: dict，包含 "out" 键，值为 (B, 1) 的判别分数
-                   - 项目中使用 core.models.discriminator.Discriminator
-
-        real_imgs: 真实图片张量, shape (B, 3, H, W)
-                   - 必须 requires_grad=True（计算梯度惩罚需要）
-                   - 值域: [-1, 1]（StyleGAN 的标准输出范围）
-
-        fake_imgs: 生成器生成的图片张量, shape (B, 3, H, W)
-                   - 由生成器 G(z) 产生，z 是随机噪声
-                   - 训练判别器时需要 .detach()，不回传梯度到生成器
-
-        lambda_gp: 梯度惩罚系数 λ，默认 10.0
-                   - 越大：梯度惩罚越强，判别器越"温和"，训练越稳定但可能收敛慢
-                   - 越小：梯度惩罚越弱，判别器可能太强，导致训练不稳定
-                   - 常用值: 1, 5, 10（WGAN-GP 原论文推荐 10）
+        D:         判别器模型，输出经 sigmoid，值域 (0, 1]
+        real_imgs: 真实图片, shape (B, 3, H, W), 值域 [-1, 1]
+        fake_imgs: 生成图片, shape (B, 3, H, W), 值域 [-1, 1]
+        lambda_gp: 梯度惩罚系数，默认 10.0
 
     返回:
         loss: 标量张量（可反向传播）
-              - 包含 loss_gan + loss_gp
-              - 训练目标：最小化此值
-
-    使用示例:
-        # 训练判别器
-        z = torch.randn(batch_size, 512)
-        fake_imgs = generator(z).detach()  # detach！不回传梯度到生成器
-        loss_D = L_D(discriminator, real_imgs, fake_imgs, lambda_gp=10.0)
-        optimizer_D.zero_grad()
-        loss_D.backward()
-        optimizer_D.step()
     """
-
-    # ========================================================================
-    # 第一部分：Wasserstein 损失
-    # ========================================================================
-    # 公式: E[D(fake)] - E[D(real)]
-    # 最小化此值即让 D(real) 大、D(fake) 小
-    # D 输出无界（不使用 sigmoid），需要 Discriminator(activate=False)
-
     real_out = D(real_imgs)["out"]
     fake_out = D(fake_imgs)["out"]
 
-    loss_gan = (fake_out - real_out).mean()
+    # clamp 防止 log(0) = -inf
+    real_out = torch.clamp(real_out, 1e-7, 1.0)
+    fake_out = torch.clamp(fake_out, 1e-7, 1.0)
 
-    # ========================================================================
-    # 第二部分：梯度惩罚 (Gradient Penalty, GP)
-    # ========================================================================
-    # 公式: λ × E[(||∇D(x')||₂ - 1)²]
-    #
-    # 为什么需要梯度惩罚？
-    #   - WGAN 要求判别器是 1-Lipschitz 函数（梯度范数 ≤ 1）
-    #   - 梯度惩罚通过软约束，让判别器的梯度范数接近 1
-    #   - 这样可以防止判别器太强（梯度爆炸）或太弱（梯度消失）
-    #   - 使训练更稳定，生成质量更高
-    #
-    # 具体做法：
-    #   1. 在真实图片和生成图片之间做随机插值
-    #   2. 计算判别器对插值图片的梯度
-    #   3. 梯度范数偏离 1 的程度作为惩罚项
+    loss_gan = -(torch.log(real_out).mean() + torch.log(1 - fake_out).mean())
 
-    # --- 步骤 1: 生成插值图片 ---
-    # alpha 是 [0, 1] 之间的随机数，shape (B, 1, 1, 1) 以便广播
+    # 梯度惩罚
     alpha = torch.rand(real_imgs.size(0), 1, 1, 1, device=real_imgs.device)
-
-    # 线性插值: x_interp = α × real + (1-α) × fake
-    # requires_grad_(True)：告诉 PyTorch 需要对这个张量计算梯度
     interpolated = (alpha * real_imgs + (1 - alpha) * fake_imgs).requires_grad_(True)
-
-    # --- 步骤 2: 计算判别器对插值图片的输出 ---
     interp_out = D(interpolated)["out"]
 
-    # --- 步骤 3: 计算梯度 ∇D(x_interp) ---
-    # torch.autograd.grad 计算 interp_out 对 interpolated 的梯度
     gradients = torch.autograd.grad(
-        outputs=interp_out,           # 输出：判别器的判别分数
-        inputs=interpolated,          # 输入：插值图片（对它求梯度）
-        grad_outputs=torch.ones_like(interp_out),  # ∂L/∂out = 1，即直接对 out 求导
-        create_graph=True,            # 必须为 True！
-                                      # 因为我们需要对"梯度"再求导（二阶梯度）
-                                      # 如果 False，梯度惩罚项无法反向传播
-        retain_graph=True,            # 保留计算图，因为 loss_gan 也要用
-    )[0]  # grad 返回 tuple，取第一个元素
+        outputs=interp_out,
+        inputs=interpolated,
+        grad_outputs=torch.ones_like(interp_out),
+        create_graph=True,
+        retain_graph=True,
+    )[0]
 
-    # --- 步骤 4: 计算梯度的 L2 范数 ---
-    # gradients shape: (B, C, H, W) → 展平为 (B, C*H*W)
     gradients = gradients.view(gradients.size(0), -1)
-
-    # 计算每张图片梯度的 L2 范数: ||∇D(x_interp)||₂
-    # gradient_norm shape: (B,)
     gradient_norm = gradients.norm(2, dim=1)
-
-    # --- 步骤 5: 梯度惩罚项 ---
-    # 公式: λ × E[(||∇D||₂ - 1)²]
-    # 当 ||∇D||₂ = 1 时，惩罚为 0（理想状态）
-    # 当 ||∇D||₂ 偏离 1 时，惩罚增大，迫使梯度回到 1 附近
     loss_gp = lambda_gp * ((gradient_norm - 1) ** 2).mean()
 
-    # ========================================================================
-    # 总损失 = Wasserstein 损失 + 梯度惩罚
-    # ========================================================================
     loss = loss_gan + loss_gp
     return loss
 
@@ -192,27 +123,25 @@ def L_D(D, real_imgs, fake_imgs, lambda_gp=10.0):
 
 def L_G(D, fake_imgs):
     """
-    生成器对抗损失（Generator Adversarial Loss, Wasserstein 形式）
+    生成器对抗损失（Generator Adversarial Loss）
 
-    与 L_D 配合使用 WGAN-GP，判别器输出无界（activate=False）。
-
-    公式: L_G = -E[D(G(z))]
-    - 当 D(G(z)) 大（判别器被骗），loss 小（负数）
-    - 当 D(G(z)) 小（判别器识别出假图），loss 大（正数）
+    公式: L_G = E[log(1 - D(x'))]
+    - 当 D(G(z)) 接近 1（判别器被骗），log(1-D) → -∞，loss 小
+    - 当 D(G(z)) 接近 0（判别器识别出假图），log(1-D) → 0，loss 大
 
     注意：不能用 torch.no_grad()，否则内层上下文会覆盖外层 enable_grad()，
     导致 loss_G 没有 grad_fn，梯度无法回传到 Bridge MLP。
-    D 的参数不会被更新，因为 training.py 中只调 optimizer_brig.step()。
 
     参数:
-        D:         判别器模型，输出无界值（activate=False）
+        D:         判别器模型，输出经 sigmoid，值域 (0, 1]
         fake_imgs: 生成器生成的图片张量, shape (B, 3, H, W)，需保留梯度
 
     返回:
         loss_G: 标量张量（可反向传播）
     """
     fake_out = D(fake_imgs)["out"]
-    loss_G = -fake_out.mean()
+    fake_out = torch.clamp(fake_out, 1e-7, 1.0)
+    loss_G = torch.log(1 - fake_out).mean()
     return loss_G
 
 
