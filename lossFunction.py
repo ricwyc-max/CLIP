@@ -6,12 +6,13 @@ __author__ = 'Eric'
 #
 # 本文件包含 CLIP2GAN 项目中用到的所有损失函数：
 #   1. L_rec   — 重建损失（衡量生成图片与目标图片的像素级差异）
-#   2. L_D     — WGAN-GP 判别器损失（标准 GAN 损失 + 梯度惩罚）
+#   2. L_D     — 判别器损失（原始 GAN 损失 + 梯度惩罚）
 #   3. L_G     — 生成器对抗损失（让生成图片骗过判别器）
-#   4.Perceptual loss - 感知损失（让生成图片关注细节）
+#   4. L_lpips — 感知损失（让生成图片关注细节）
+#   5. L_div   — 多样性损失（鼓励不同特征产生不同图像）
 #
 # 数学公式：
-#   L_rec   = MSE(x, x_recon)                                        （均方误差）
+#   L_rec   = ‖x - x'‖₂²                                             （L2 范数平方）
 #   L_D     = -{E[log D(x)] + E[log(1 - D(x'))]}                    （原始 GAN 判别器损失）
 #           + λ × E[(||∇D(x')||₂ - 1)²]                             （梯度惩罚 GP）
 #   L_G     = E[log(1 - D(x'))]                                      （生成器损失）
@@ -39,12 +40,11 @@ import torch.nn.functional as F
 
 def L_rec(x, x_recon):
     """
-    重建损失（Reconstruction Loss, MSE 形式）
+    重建损失（Reconstruction Loss, L2 范数平方）
 
-    衡量生成图片 x_recon 与目标图片 x 之间的像素级差异。
-    使用 MSE（均方误差），每个像素独立贡献梯度，量级稳定。
+    公式: L_rec = ‖x - x'‖₂²
 
-    公式: L_rec = mean((x - x_recon)²)
+    每个样本计算所有像素差值的 L2 范数平方，再对 batch 取均值。
 
     参数:
         x:       目标图片张量, shape (B, C, H, W)，值域 [-1, 1]
@@ -53,8 +53,7 @@ def L_rec(x, x_recon):
     返回:
         loss_rec: 标量张量（可反向传播）
     """
-    # MSE: 每个像素独立贡献梯度，梯度 = 2*(x - x_recon)/N，量级稳定
-    loss_rec = F.mse_loss(x, x_recon)
+    loss_rec = (x - x_recon).pow(2).flatten(1).sum(dim=1).mean()
     return loss_rec
 
 
@@ -266,3 +265,40 @@ class LPIPS_AlexNet(nn.Module):
             loss = loss + layer_loss.mean()
 
         return loss
+
+
+# ============================================================================
+#
+#                           5. 多样性损失 L_div
+#
+# ============================================================================
+
+def L_div(feat_orig, feat_noisy, img_orig, img_noisy):
+    """
+    多样性损失（Diversity Loss）
+
+    公式: L_div = d_f(f_img, f_img1) / d_I(x', x'_1)
+
+    鼓励不同特征输入产生不同的生成图像。
+    当两个特征的扰动很大但生成图像几乎相同时，分母小、loss 大，惩罚模式坍缩。
+
+    参数:
+        feat_orig:  原始 CLIP 图像特征, shape (B, D)
+        feat_noisy: 加噪后的 CLIP 图像特征, shape (B, D)
+        img_orig:   从 feat_orig 生成的图片, shape (B, 3, H, W), 值域 [-1, 1]
+        img_noisy:  从 feat_noisy 生成的图片, shape (B, 3, H, W), 值域 [-1, 1]
+
+    返回:
+        loss_div: 标量张量（可反向传播）
+    """
+    # 特征空间 L1 距离: d_f = mean(|f - f1|)
+    d_f = torch.abs(feat_orig - feat_noisy).mean()
+
+    # 图像空间 L1 距离: d_I = mean(|x - x1|)
+    d_I = torch.abs(img_orig - img_noisy).mean()
+
+    # 防止分母为 0
+    d_I = torch.clamp(d_I, min=1e-7)
+
+    loss_div = d_f / d_I
+    return loss_div
