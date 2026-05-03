@@ -3,7 +3,7 @@
 ---
 
 > **课程**：生成式人工智能  
-> **状态**：进行中 / 基础架构搭建  
+> **状态**：进行中 / 训练流程已跑通  
 > **指导老师**：陈培垠  
 > **指导老师邮箱**：pychen@hhu.edu.cn  
 > **大作业成员邮箱**：134074852@qq.com  
@@ -46,12 +46,12 @@
 - **使用Transformer网络进行图像生成、CLIP进行引导（DALL·E）**
   - 具体方案：
 
-- **使用mobileStyleGAN网络进行图像生成、mobileCLIP网络进行图像引导**
-  - 具体方案：  
-1、使用预训练mobileStyleGAN进行图像生成，预训练mobileStyleGAN权重获取参考地址：https://github.com/bes-dev/MobileStyleGAN.pytorch  
-2、使用预训练mobileCLIP进行文本编码，预训练mobileCLIP权重获取参考地址：https://github.com/mlfoundations/open_clip  
-3、自建 Bridge MLP 隐空间向量语义转换层  
-4、进行不同损失函数的消融实验  
+- **使用mobileStyleGAN网络进行图像生成、mobileCLIP网络进行图像引导（CLIP2GAN）**
+  - 具体方案：
+1、使用预训练mobileStyleGAN进行图像生成，预训练mobileStyleGAN权重获取参考地址：https://github.com/bes-dev/MobileStyleGAN.pytorch
+2、使用预训练mobileCLIP进行文本编码，预训练mobileCLIP权重获取参考地址：https://github.com/mlfoundations/open_clip
+3、自建 Bridge MLP 隐空间向量语义转换层
+4、进行不同损失函数的消融实验
   - 模型输出展示：  
 
 | 图片 | 说明 |
@@ -70,12 +70,22 @@
 
 
 
-**核心流程**：
-1.  **文本编码**：输入 Prompt \( \rightarrow \) CLIP Text Encoder \( \rightarrow \) 文本嵌入 \( T \)
-2.  **图像生成**：随机噪声 \( z \) + 文本嵌入 \( T \) \( \rightarrow \) 生成器（Diffusion/Transformer） \( \rightarrow \) 生成图像 \( I_{gen} \)
-3.  **语义对齐**：CLIP Image Encoder 提取 \( I_{gen} \) 的特征 \( V \)，与文本特征 \( T \) 计算 **CLIP-Score**，作为语义损失回传。
-4. **消融实验**：对不同的编码器和生成器组合进行消融实验，同时对不同损失函数进行消融实验，了解损失函数对于模型的具体影响。
-5. **尝试完成文本-图像编辑**：尝试测试文本编辑图像功能，了解其功能边界。
+**核心流程（CLIP2GAN 方案）**：
+```
+原始图片 (3, 1024, 1024)
+    → CLIP Image Encoder → img_embedding (512维)
+    → [Bridge MLP] → style (512维)
+    → MobileStyleGAN → 生成图片 (3, 1024, 1024)
+```
+1.  **图像编码**：输入图片 \( \rightarrow \) CLIP ViT-B-32 \( \rightarrow \) 512维图像特征（冻结，不训练）
+2.  **特征转换**：图像特征 \( \rightarrow \) Bridge MLP（12层全连接） \( \rightarrow \) 512维风格向量（**可训练**）
+3.  **图像生成**：风格向量 \( \rightarrow \) MobileStyleGAN MappingNetwork + SynthesisNetwork \( \rightarrow \) 1024×1024图片（冻结，不训练）
+4.  **损失函数**：
+    - **L_rec**：重建损失（L2范数），衡量生成图与原图的像素级差异
+    - **L_D**：WGAN-GP 判别器损失（标准GAN损失 + 梯度惩罚）
+    - **L_G**：生成器对抗损失，支持 saturating / non-saturating 两种形式
+5.  **训练策略**：Step1 训练判别器 D，Step2 训练 Bridge MLP（L_rec + L_G），CLIP 和 MobileStyleGAN 全程冻结
+6.  **消融实验**：对不同损失函数组合（是否使用 D、L_G 权重等）进行消融实验
 
 **基线模型参考**：
 -   （例如：DALL·E 2， Stable Diffusion， 或 简单的 Conditional GAN + CLIP）
@@ -96,20 +106,42 @@ CelebA-HQ(git clone https://www.modelscope.cn/datasets/OmniData/CelebA-HQ.git) (
 
 -   [x] 文献调研：理解 CLIP 的对比学习原理及在文生图中的应用
 -   [x] 环境配置与 CLIP 预训练权重加载
--   [x] 搭建生成器骨架
--   [ ] 实现 CLIP 引导的损失函数
--   [ ] 训练与调试
--   [ ] 探索更多的生成器和编码器类型
+-   [x] 搭建生成器骨架（MobileStyleGAN）
+-   [x] 封装 CLIP2GAN 统一接口（CLIP + MobileStyleGAN）
+-   [x] 实现损失函数模块（L_rec、L_D WGAN-GP、L_G 饱和/非饱和）
+-   [x] 搭建训练流程（消融实验配置、图像保存、损失记录、模型保存）
+-   [ ] 训练与调参
+-   [ ] 评估指标实现（FID、CLIP-Score）
+-   [ ] 文本到图像推理
 
 ## 6. 如何运行
 
-*（待补充：环境安装、数据准备、训练命令、推理示例）*
-
+**环境安装**
 ```bash
-git clone [你们的仓库地址]
-cd [项目目录]
+git clone [仓库地址]
+cd CLIP
 pip install -r requirements.txt
-python train.py --config configs/clip_guidance.yaml
+```
+
+**数据集准备**
+
+将 CelebA-HQ 图片放入 `dataset/CelebAMask-HQ/CelebAMask-HQ/CelebAMask-HQ/CelebA-HQ-img/` 目录。
+
+**训练**
+```bash
+# 修改 training.py 顶部的统一参数配置（exp_name、batch_size、epoches 等）
+python training.py
+```
+
+训练产物输出到 `results/{exp_name}/`：
+- `images/` — 每轮 batch 网格图 + 每 1000 张的单张生成图
+- `checkpoints/` — best_bridge.pth（最佳权重）、last_bridge.pth（最终权重）
+- `losses.csv` — 每轮损失记录
+- `loss_curve.png` — 损失曲线图
+
+**推理测试**
+```bash
+python CLIP2GAN.py
 ```
 
 ## Requirements
@@ -256,29 +288,23 @@ zipp                      3.23.1
 ---
 ```text
 CLIP
-├── .gitattributes
-├── .gitignore git忽略文件
-├── CLIP  CLIP测试路径
-│   └── mobileCLIP
-│       ├── docs
-│       │   └── dog.jpg   #测试图片
-│       ├── model   #CLIP模型文件
-│       └── openclip.py   #CLIP测试程序
-├── CLIP2GAN.py   CLIP以及GAN网络类封装
-├── LICENSE   许可
-├── README.md   说明文档
-├── StyleGAN   StyleGAN测试路径
-│   └── mobileStyleGAN
-│       └── MobileStyleGAN.pytorch
-├── bridgeNetwork.py  桥接MLP网络封装
-├── dataset   数据集文件夹
-├── lossFunction.py   损失函数模块
-├── training.py   训练模块
-└── 参考文献
-    ├── Karras 等 - 2018 - Progressive Growing of GANs for Improved Quality, Stability, and Variation.pdf
-    ├── Karras 等 - 2019 - A Style-Based Generator Architecture for Generative Adversarial Networks.pdf
-    ├── Radford 等 - 2021 - Learning Transferable Visual Models From Natural Language Supervision.pdf
-    └── Wang 等 - 2022 - CLIP2GAN Towards Bridging Text with the Latent Space of GANs.pdf
+├── CLIP2GAN.py         CLIP + MobileStyleGAN 统一封装类
+├── bridgeNetwork.py    Bridge MLP 桥接网络（12层全连接，512→512）
+├── lossFunction.py     损失函数模块（L_rec、L_D、L_G）
+├── training.py         训练模块（消融实验、图像保存、损失记录）
+├── LoadDatasets.py     数据集加载模块
+├── testing.py          测试模块
+├── CLIP/               CLIP 模型与测试
+│   └── mobileCLIP/
+│       ├── model/      CLIP 预训练权重
+│       └── openclip.py CLIP 测试程序
+├── StyleGAN/           MobileStyleGAN 代码与权重
+│   └── mobileStyleGAN/MobileStyleGAN.pytorch/
+│       ├── core/       模型定义（MappingNetwork、SynthesisNetwork、Discriminator）
+│       └── model/      预训练权重 (.ckpt)
+├── dataset/            CelebA-HQ 数据集
+├── results/            训练产物（images、checkpoints、losses.csv、loss_curve.png）
+└── 参考文献/           相关论文
 ```
 
 ## Citing
