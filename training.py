@@ -61,7 +61,7 @@ CLIP_STD  = torch.tensor([0.26862954, 0.26130258, 0.27577711]).view(1, 3, 1, 1)
 # ============================================================================
 exp_name = "exp1"           # 实验文件夹名称（用户填写）
 save_interval = 1           # 每 N 轮保存一次图像（完整 batch 网格图）
-img_save_interval = 1000    # 每 N 张图片保存一次单张生成图
+img_save_interval = 50    # 每 N 张图片保存一次单张生成图
 use_D = True                # 是否使用判别器
 lam_L_G = 1                 # L_G 的权重系数
 epoches = 5               # 训练轮数
@@ -236,12 +236,14 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
                   f"L_D={loss_D.item():.4f}  L_G={loss_G.item():.4f}  "
                   f"L_rec={loss_rec.item():.4f}  L_total={loss_total.item():.4f}")
 
-            # 每 img_save_interval 张图片保存一张生成图
+            # 每 img_save_interval 张图片保存一张生成图和对应的原图
             total_imgs_done += batch_size
             if total_imgs_done % img_save_interval < batch_size:
-                single_fake = (fake_imgs[0].detach().clamp(-1, 1) + 1) / 2
+                single_real = real_imgs[0]  # [0,1]
+                single_fake = (fake_imgs[0].detach().clamp(-1, 1) + 1) / 2  # 转 [0,1]
+                save_image(single_real, os.path.join(img_dir, f"img_{total_imgs_done}_real.png"))
                 save_image(single_fake, os.path.join(img_dir, f"img_{total_imgs_done}_fake.png"))
-                print(f"  >> 生成图已保存 ({total_imgs_done} imgs)")
+                print(f"  >> 原图与生成图已保存 ({total_imgs_done} imgs)")
 
         # ====================================================================
         # 每轮结束：计算平均损失

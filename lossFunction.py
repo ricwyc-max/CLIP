@@ -66,9 +66,9 @@ def L_rec(x, x_recon):
         - L2 损失对大误差更敏感（平方项），但可能导致模糊
         - 如果想要更清晰的结果，可以考虑 L1 损失：torch.abs(x - x_recon).mean()
     """
-    # torch.norm(x, p=2) 计算 L2 范数，即 sqrt(sum(x_i²))
-    # .mean() 对 batch 维度取平均，得到标量
-    loss_rec = torch.norm(x - x_recon, p=2).mean()
+    # 展平为 (B, C*H*W)，逐样本计算 L2 距离，再取 batch 平均
+    diff = (x - x_recon).view(x.size(0), -1)
+    loss_rec = torch.norm(diff, p=2, dim=1).mean()
     return loss_rec
 
 

@@ -34,7 +34,7 @@ class Bridge_MLP(nn.Module):
         self.leakyRelu = nn.LeakyReLU(0.2)
 
     def forward(self, x):
-        # 定义前向传播（必须实现）
+        # 12层全连接 + LeakyReLU
         x = self.fc1(x)
         x = self.leakyRelu(x)
         x = self.fc2(x)
@@ -59,6 +59,8 @@ class Bridge_MLP(nn.Module):
         x = self.leakyRelu(x)
         x = self.fc12(x)
 
+        # PixelNorm：约束输出范数，保持与 MobileStyleGAN W 空间分布一致
+        x = x * torch.rsqrt(torch.mean(x ** 2, dim=1, keepdim=True) + 1e-8)
         return x
 
 if __name__ == "__main__":
