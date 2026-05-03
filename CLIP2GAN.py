@@ -20,6 +20,7 @@ CLIP2GAN 封装类
 """
 
 import os
+os.environ["HF_HUB_OFFLINE"] = "1"  # 强制离线加载，不检查远程仓库
 import sys
 
 # ========== 路径设置 ==========

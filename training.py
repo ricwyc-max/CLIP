@@ -59,14 +59,14 @@ CLIP_STD  = torch.tensor([0.26862954, 0.26130258, 0.27577711]).view(1, 3, 1, 1)
 #                               统一参数配置（消融实验）
 #
 # ============================================================================
-exp_name = "exp1"           # 实验文件夹名称（用户填写）
+exp_name = "exp2"           # 实验文件夹名称（用户填写）
 save_interval = 1           # 每 N 轮保存一次图像（完整 batch 网格图）
 img_save_interval = 50    # 每 N 张图片保存一次单张生成图
 use_D = True                # 是否使用判别器
 use_lpips = True            # 是否使用 LPIPS 感知损失
 lam_L_rec = 100             # L_rec 的权重系数（MSE 量级小，需要放大）
 lam_lpips = 10              # LPIPS 的权重系数（LPIPS 量级约 0.1~2，乘 10 与 L_rec 量级平衡）
-epoches = 5               # 训练轮数
+epoches = 3               # 训练轮数
 batch_size = 1             # 批次大小
 lr = 0.0001                 # 学习率
 
