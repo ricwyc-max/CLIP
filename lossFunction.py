@@ -38,22 +38,25 @@ import torch.nn.functional as F
 #
 # ============================================================================
 
-def L_rec(x, x_recon):
+def L_rec(x, x_recon, mode="mse"):
     """
-    重建损失（Reconstruction Loss, L2 范数平方）
+    重建损失（Reconstruction Loss）
 
-    公式: L_rec = ‖x - x'‖₂²
-
-    每个样本计算所有像素差值的 L2 范数平方，再对 batch 取均值。
+    mode="mse":  MSE = mean((x - x')²)，梯度量级小，适合与其他 loss 配合
+    mode="l2":   ‖x - x'‖₂²，梯度量级大，需要很小的权重系数
 
     参数:
         x:       目标图片张量, shape (B, C, H, W)，值域 [-1, 1]
         x_recon: 生成图片张量, shape (B, C, H, W)，值域 [-1, 1]
+        mode:    "mse" 或 "l2"
 
     返回:
         loss_rec: 标量张量（可反向传播）
     """
-    loss_rec = (x - x_recon).pow(2).flatten(1).sum(dim=1).mean()
+    if mode == "mse":
+        loss_rec = F.mse_loss(x, x_recon)
+    else:
+        loss_rec = (x - x_recon).pow(2).flatten(1).sum(dim=1).mean()
     return loss_rec
 
 

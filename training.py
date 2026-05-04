@@ -59,18 +59,17 @@ CLIP_STD  = torch.tensor([0.26862954, 0.26130258, 0.27577711]).view(1, 3, 1, 1)
 #                               统一参数配置（消融实验）
 #
 # ============================================================================
-exp_name = "exp3"           # 实验文件夹名称（用户填写）
+exp_name = "exp4"           # 实验文件夹名称（用户填写）
 save_interval = 1           # 每 N 轮保存一次图像（完整 batch 网格图）
 img_save_interval = 50    # 每 N 张图片保存一次单张生成图
 use_D = True                # 是否使用判别器
 use_lpips = True            # 是否使用 LPIPS 感知损失
 use_div = True              # 是否使用多样性损失
-lam_L_rec = 0.0001          # L_rec 初始权重（前期主导，×0.0001 → ~400，引导粗结构）
-lam_L_rec_end = 0.000005    # L_rec 最终权重（后期衰减，×0.000005 → ~10，弱化像素约束）
-rec_decay_steps = 10000      # L_rec 线性衰减步数（前 N 步从 start 衰减到 end）
-lam_lpips = 25              # L_lpips 权重（量级 ~6，×25 → ~150，感知质量主导）
-lam_G = 50                  # L_G 权重（量级 ~-0.5，×50 → ~-25，对抗梯度占比提升）
-lam_div = 5                 # L_div 权重（量级 ~8，×5 → ~40，鼓励多样性）
+rec_mode = "mse"            # L_rec 模式: "mse"（均方误差，梯度量级小）或 "l2"（L2范数平方，梯度量级大）
+lam_L_rec = 150             # L_rec 权重（MSE 量级 ~0.03，×150 → ~4.5，重建梯度占比 ~40%）
+lam_lpips = 15              # L_lpips 权重（量级 ~0.15，×15 → ~2.3，感知梯度占比 ~36%）
+lam_G = 25                  # L_G 权重（量级 ~-0.04，×25 → ~-1.0，对抗梯度占比 ~16%）
+lam_div = 5                 # L_div 权重（量级 ~0.1，×5 → ~0.5，多样性梯度占比 ~8%）
 epoches = 1               # 训练轮数
 batch_size = 1             # 批次大小
 lr = 0.0001                 # Bridge MLP 学习率
@@ -224,10 +223,6 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
             global_step += 1
             psi = min(1.0, truncation_psi_start + (1.0 - truncation_psi_start) * global_step / truncation_warmup)
 
-            # L_rec 权重线性衰减：前期重建引导，后期细节引导
-            decay_ratio = min(1.0, global_step / rec_decay_steps)
-            lam_rec_now = lam_L_rec + (lam_L_rec_end - lam_L_rec) * decay_ratio
-
             # ====================================
             # 第1步：训练判别器 D
             # ====================================
@@ -258,7 +253,7 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
                 else:
                     loss_G = torch.tensor(0.0, device=device)
 
-                loss_rec = LF.L_rec(real_imgs_scaled, fake_imgs)
+                loss_rec = LF.L_rec(real_imgs_scaled, fake_imgs, mode=rec_mode)
 
                 if use_lpips and lpips_fn is not None:
                     loss_lpips = lpips_fn(real_imgs_scaled, fake_imgs)
@@ -276,7 +271,7 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
                 else:
                     loss_div = torch.tensor(0.0, device=device)
 
-                loss_total = loss_rec * lam_rec_now + loss_lpips * lam_lpips + loss_G * lam_G + loss_div * lam_div
+                loss_total = loss_rec * lam_L_rec + loss_lpips * lam_lpips + loss_G * lam_G + loss_div * lam_div
 
             batch_count += 1
             optimizer_brig.zero_grad()
@@ -293,7 +288,7 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
             # 每个 batch 打印一次日志
             imgs_done = batch_count * batch_size
             print(f"  [Epoch {epoch}] Batch {batch_count}/{total_batches} | "
-                  f"Imgs {imgs_done}/{total_imgs} | psi={psi:.3f} λr={lam_rec_now:.6f} | "
+                  f"Imgs {imgs_done}/{total_imgs} | psi={psi:.3f} | "
                   f"L_D={loss_D.item():.4f}  L_G={loss_G.item():.4f}  "
                   f"L_rec={loss_rec.item():.4f}  L_lpips={loss_lpips.item():.4f}  "
                   f"L_div={loss_div.item():.4f}  L_total={loss_total.item():.4f}")
