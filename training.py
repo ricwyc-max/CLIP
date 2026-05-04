@@ -65,9 +65,9 @@ img_save_interval = 50    # 每 N 张图片保存一次单张生成图
 use_D = True                # 是否使用判别器
 use_lpips = True            # 是否使用 LPIPS 感知损失
 use_div = True              # 是否使用多样性损失
-lam_L_rec = 0.0001          # L_rec 初始权重（前期主导，×0.0001 → ~200，引导粗结构）
+lam_L_rec = 0.0001          # L_rec 初始权重（前期主导，×0.0001 → ~400，引导粗结构）
 lam_L_rec_end = 0.000005    # L_rec 最终权重（后期衰减，×0.000005 → ~10，弱化像素约束）
-rec_decay_steps = 5000      # L_rec 线性衰减步数（前 N 步从 start 衰减到 end）
+rec_decay_steps = 10000      # L_rec 线性衰减步数（前 N 步从 start 衰减到 end）
 lam_lpips = 25              # L_lpips 权重（量级 ~6，×25 → ~150，感知质量主导）
 lam_G = 50                  # L_G 权重（量级 ~-0.5，×50 → ~-25，对抗梯度占比提升）
 lam_div = 5                 # L_div 权重（量级 ~8，×5 → ~40，鼓励多样性）
@@ -76,7 +76,7 @@ batch_size = 1             # 批次大小
 lr = 0.0001                 # Bridge MLP 学习率
 lr_D = 0.00002              # 判别器学习率（比 Bridge 低，防止 D 太强）
 truncation_psi_start = 0.5  # 截断起始值（0.5 = 强截断，保证初始生成质量）
-truncation_warmup = 500    # 截断热身步数（前 N 步逐步放开截断，psi: 0.5→1.0）
+truncation_warmup = 5000    # 截断热身步数（前 N 步逐步放开截断，psi: 0.5→1.0）
 
 
 # ============================================================================
