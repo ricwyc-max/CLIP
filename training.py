@@ -10,7 +10,7 @@ __author__ = 'Eric'
 #                                                 ↓
 #                                         [Bridge MLP]
 #                                                 ↓
-#                                           style (512维)
+#                                     W+ latent code (23×512维)
 #                                                 ↓
 #                                         MobileStyleGAN → 生成图片 (3, 1024, 1024)
 #
@@ -73,6 +73,8 @@ epoches = 1               # 训练轮数
 batch_size = 1             # 批次大小
 lr = 0.0001                 # Bridge MLP 学习率
 lr_D = 0.00002              # 判别器学习率（比 Bridge 低，防止 D 太强）
+truncation_psi_start = 0.5  # 截断起始值（0.5 = 强截断，保证初始生成质量）
+truncation_warmup = 5000    # 截断热身步数（前 N 步逐步放开截断，psi: 0.5→1.0）
 
 
 # ============================================================================
@@ -182,6 +184,8 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
     total_imgs = len(dataset)
 
     total_imgs_done = 0  # 跨 epoch 的全局图片计数
+    global_step = 0      # 全局训练步数（用于截断热身）
+    style_mean = CLIPandGAN.style_mean  # 预计算的 W 空间均值
 
     for epoch in range(1, epoches + 1):
         epoch_L_D = 0.0
@@ -213,17 +217,17 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
 
             # CLIP 编码只需一次，Step 1 和 Step 2 共用
             img_feat = CLIPandGAN.encode_image(real_imgs_clip)
-            # 在 image feature 上加标准正态噪声，增强 Bridge MLP 的鲁棒性
-            img_feat_noisy = img_feat + torch.randn_like(img_feat)
+
+            # 截断热身：psi 从 start 线性增长到 1.0（无截断）
+            global_step += 1
+            psi = min(1.0, truncation_psi_start + (1.0 - truncation_psi_start) * global_step / truncation_warmup)
 
             # ====================================
             # 第1步：训练判别器 D
             # ====================================
             with torch.no_grad():
-                style_vector = birdgeNetwork(img_feat_noisy)
-                # 截断：将 style 拉向均值，防止偏离过远导致生成质量下降
-                style_mean = CLIPandGAN.style_mean
-                style_vector = style_mean + 0.5 * (style_vector - style_mean)
+                style_vector = birdgeNetwork(img_feat)
+                style_vector = style_mean + psi * (style_vector - style_mean)
                 fake_imgs = CLIPandGAN.synthesis_net(style_vector.to(device))["img"].clamp(-1, 1)
 
             if use_D and D is not None and optimizer_D is not None:
@@ -239,9 +243,8 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
             # 第2步：训练生成器 Bridge
             # ====================================
             with torch.enable_grad():
-                style_vector = birdgeNetwork(img_feat_noisy)
-                style_mean = CLIPandGAN.style_mean
-                style_vector = style_mean + 0.5 * (style_vector - style_mean)
+                style_vector = birdgeNetwork(img_feat)
+                style_vector = style_mean + psi * (style_vector - style_mean)
                 fake_imgs = CLIPandGAN.synthesis_net(style_vector.to(device))["img"].clamp(-1, 1)
 
                 if use_D and D is not None:
@@ -256,13 +259,14 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
                 else:
                     loss_lpips = torch.tensor(0.0, device=device)
 
-                # 多样性损失：从原始特征（无噪声）生成图片，比较两组生成图的差异
+                # 多样性损失：对 img_feat 加噪声，比较两组生成图的差异
                 if use_div:
+                    img_feat_noisy = img_feat + torch.randn_like(img_feat)
                     with torch.no_grad():
-                        style_orig = birdgeNetwork(img_feat)
-                        style_orig = style_mean + 0.5 * (style_orig - style_mean)
-                        fake_imgs_orig = CLIPandGAN.synthesis_net(style_orig.to(device))["img"].clamp(-1, 1)
-                    loss_div = LF.L_div(img_feat, img_feat_noisy, fake_imgs_orig, fake_imgs)
+                        style_noisy = birdgeNetwork(img_feat_noisy)
+                        style_noisy = style_mean + psi * (style_noisy - style_mean)
+                        fake_imgs_noisy = CLIPandGAN.synthesis_net(style_noisy.to(device))["img"].clamp(-1, 1)
+                    loss_div = LF.L_div(img_feat, img_feat_noisy, fake_imgs, fake_imgs_noisy)
                 else:
                     loss_div = torch.tensor(0.0, device=device)
 
@@ -283,7 +287,7 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
             # 每个 batch 打印一次日志
             imgs_done = batch_count * batch_size
             print(f"  [Epoch {epoch}] Batch {batch_count}/{total_batches} | "
-                  f"Imgs {imgs_done}/{total_imgs} | "
+                  f"Imgs {imgs_done}/{total_imgs} | psi={psi:.3f} | "
                   f"L_D={loss_D.item():.4f}  L_G={loss_G.item():.4f}  "
                   f"L_rec={loss_rec.item():.4f}  L_lpips={loss_lpips.item():.4f}  "
                   f"L_div={loss_div.item():.4f}  L_total={loss_total.item():.4f}")
