@@ -59,23 +59,21 @@ CLIP_STD  = torch.tensor([0.26862954, 0.26130258, 0.27577711]).view(1, 3, 1, 1)
 #                               统一参数配置（消融实验）
 #
 # ============================================================================
-exp_name = "exp4"           # 实验文件夹名称（用户填写）
+exp_name = "exp5"           # 实验文件夹名称
 save_interval = 1           # 每 N 轮保存一次图像（完整 batch 网格图）
-img_save_interval = 50    # 每 N 张图片保存一次单张生成图
+img_save_interval = 50      # 每 N 张图片保存一次单张生成图
 use_D = True                # 是否使用判别器
 use_lpips = True            # 是否使用 LPIPS 感知损失
 use_div = True              # 是否使用多样性损失
-rec_mode = "mse"            # L_rec 模式: "mse"（均方误差，梯度量级小）或 "l2"（L2范数平方，梯度量级大）
-lam_L_rec = 150             # L_rec 权重（MSE 量级 ~0.03，×150 → ~4.5，重建梯度占比 ~40%）
-lam_lpips = 15              # L_lpips 权重（量级 ~0.15，×15 → ~2.3，感知梯度占比 ~36%）
-lam_G = 25                  # L_G 权重（量级 ~-0.04，×25 → ~-1.0，对抗梯度占比 ~16%）
-lam_div = 5                 # L_div 权重（量级 ~0.1，×5 → ~0.5，多样性梯度占比 ~8%）
-epoches = 1               # 训练轮数
-batch_size = 1             # 批次大小
+rec_mode = "l2"             # L_rec 模式: L2 范数平方（原文）
+lam_L_rec = 1               # L_rec 权重（基准，系数=1，量级 ~94000）
+lam_lpips = 150             # λ_lpips（LPIPS ~0.15，×150 → ~22.5）
+lam_G = 600                 # λ_G（L_G ~0.04，×600 → ~24）
+lam_div = 200               # λ_div（L_div ~0.1，×200 → ~20）
+epoches = 1                 # 训练轮数
+batch_size = 2              # 批次大小
 lr = 0.0001                 # Bridge MLP 学习率
-lr_D = 0.00002              # 判别器学习率（比 Bridge 低，防止 D 太强）
-truncation_psi_start = 0.5  # 截断起始值（0.5 = 强截断，保证初始生成质量）
-truncation_warmup = 5000    # 截断热身步数（前 N 步逐步放开截断，psi: 0.5→1.0）
+lr_D = 0.0001              # 判别器学习率（比 Bridge 低，防止 D 太强）
 
 
 # ============================================================================
@@ -185,8 +183,6 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
     total_imgs = len(dataset)
 
     total_imgs_done = 0  # 跨 epoch 的全局图片计数
-    global_step = 0      # 全局训练步数（用于截断热身）
-    style_mean = CLIPandGAN.style_mean  # 预计算的 W 空间均值
 
     for epoch in range(1, epoches + 1):
         epoch_L_D = 0.0
@@ -219,16 +215,11 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
             # CLIP 编码只需一次，Step 1 和 Step 2 共用
             img_feat = CLIPandGAN.encode_image(real_imgs_clip)
 
-            # 截断热身：psi 从 start 线性增长到 1.0（无截断）
-            global_step += 1
-            psi = min(1.0, truncation_psi_start + (1.0 - truncation_psi_start) * global_step / truncation_warmup)
-
             # ====================================
             # 第1步：训练判别器 D
             # ====================================
             with torch.no_grad():
                 style_vector = birdgeNetwork(img_feat)
-                style_vector = style_mean + psi * (style_vector - style_mean)
                 fake_imgs = CLIPandGAN.synthesis_net(style_vector.to(device))["img"].clamp(-1, 1)
 
             if use_D and D is not None and optimizer_D is not None:
@@ -245,7 +236,6 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
             # ====================================
             with torch.enable_grad():
                 style_vector = birdgeNetwork(img_feat)
-                style_vector = style_mean + psi * (style_vector - style_mean)
                 fake_imgs = CLIPandGAN.synthesis_net(style_vector.to(device))["img"].clamp(-1, 1)
 
                 if use_D and D is not None:
@@ -265,7 +255,6 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
                     img_feat_noisy = img_feat + torch.randn_like(img_feat)
                     with torch.no_grad():
                         style_noisy = birdgeNetwork(img_feat_noisy)
-                        style_noisy = style_mean + psi * (style_noisy - style_mean)
                         fake_imgs_noisy = CLIPandGAN.synthesis_net(style_noisy.to(device))["img"].clamp(-1, 1)
                     loss_div = LF.L_div(img_feat, img_feat_noisy, fake_imgs, fake_imgs_noisy)
                 else:
@@ -288,7 +277,7 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
             # 每个 batch 打印一次日志
             imgs_done = batch_count * batch_size
             print(f"  [Epoch {epoch}] Batch {batch_count}/{total_batches} | "
-                  f"Imgs {imgs_done}/{total_imgs} | psi={psi:.3f} | "
+                  f"Imgs {imgs_done}/{total_imgs} | "
                   f"L_D={loss_D.item():.4f}  L_G={loss_G.item():.4f}  "
                   f"L_rec={loss_rec.item():.4f}  L_lpips={loss_lpips.item():.4f}  "
                   f"L_div={loss_div.item():.4f}  L_total={loss_total.item():.4f}")
