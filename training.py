@@ -59,19 +59,20 @@ CLIP_STD  = torch.tensor([0.26862954, 0.26130258, 0.27577711]).view(1, 3, 1, 1)
 #                               统一参数配置（消融实验）
 #
 # ============================================================================
-exp_name = "exp2"           # 实验文件夹名称（用户填写）
+exp_name = "exp3"           # 实验文件夹名称（用户填写）
 save_interval = 1           # 每 N 轮保存一次图像（完整 batch 网格图）
 img_save_interval = 50    # 每 N 张图片保存一次单张生成图
 use_D = True                # 是否使用判别器
 use_lpips = True            # 是否使用 LPIPS 感知损失
 use_div = True              # 是否使用多样性损失
-lam_L_rec = 1               # L_rec 的权重系数（L2 范数平方，量级大，系数 1 即可）
-lam_lpips = 20              # LPIPS 的权重系数（LPIPS 量级约 0.1~2，乘 10 与 L_rec 量级平衡）
-lam_div = 10               # L_div 的权重系数（L_div 量级约 0~几，系数 1 即可）
-lam_G = 1                   #L_G 的权重系数
-epoches = 3               # 训练轮数
+lam_L_rec = 0.0001          # L_rec 权重（L2² 量级 ~2M，×0.0001 → ~200）
+lam_lpips = 15              # L_lpips 权重（量级 ~7，×15 → ~105）
+lam_G = 5                   # L_G 权重（量级 ~-0.5，×5 → ~-2.5）
+lam_div = 3                 # L_div 权重（量级 ~8，×3 → ~24）
+epoches = 1               # 训练轮数
 batch_size = 1             # 批次大小
-lr = 0.00005                 # 学习率
+lr = 0.0001                 # Bridge MLP 学习率
+lr_D = 0.00002              # 判别器学习率（比 Bridge 低，防止 D 太强）
 
 
 # ============================================================================
@@ -102,7 +103,7 @@ def loadModel(use_D=True, use_lpips=True):
 
     optimizer_brig = torch.optim.Adam(birdgeNetwork.parameters(), lr=lr)
     if use_D == True:
-        optimizer_D = torch.optim.Adam(D.parameters(), lr=lr)
+        optimizer_D = torch.optim.Adam(D.parameters(), lr=lr_D)
     else:
         optimizer_D = None
     return CLIPandGAN, birdgeNetwork, D, lpips_fn, optimizer_brig, optimizer_D
@@ -194,7 +195,6 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
         for real_imgs in dataloader:
             # real_imgs: (B, 3, 1024, 1024), 值域 [0,1] (ToTensor 输出)
             real_imgs = real_imgs.to(device)
-            batch_count += 1
 
             # real_imgs_clip: (B, 3, 224, 224), CLIP 预处理（与 openclip 一致）
             # Resize(224): 短边缩放到 224，保持比例 → CenterCrop(224) → Normalize
@@ -268,8 +268,10 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
 
                 loss_total = loss_rec * lam_L_rec + loss_lpips * lam_lpips + loss_G * lam_G + loss_div * lam_div
 
+            batch_count += 1
             optimizer_brig.zero_grad()
             loss_total.backward()
+            torch.nn.utils.clip_grad_norm_(birdgeNetwork.parameters(), max_norm=1.0)
             optimizer_brig.step()
 
             epoch_L_G += loss_G.item()
