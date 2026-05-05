@@ -76,27 +76,35 @@
 | 判别器 | MobileStyleGAN Discriminator（1024×1024，3通道） |
 | 数据集 | CelebA-HQ（30000 张 1024×1024 人脸图像） |
 
-  - 损失函数与超参数配置（exp5）：
+  - 损失函数与超参数配置（exp6，三阶段渐进训练）：
 
 $$L_{total} = \lambda_{rec} L_{rec} + \lambda_{lpips} L_{lpips} + \lambda_G L_G + \lambda_{div} L_{div} + \lambda_{clip} L_{clip} + \lambda_{reg} L_{reg}$$
 
-| 损失 | 公式 | 权重 | 说明 |
-|------|------|------|------|
-| L_rec | `MSE(x, x')` | 0.001 | 像素级重建损失 |
-| L_lpips | AlexNet LPIPS | 150 | 感知细节损失 |
-| L_D | `-E[log D(x)] - E[log(1-D(x'))] + λ·GP` | — | WGAN-GP 判别器损失（单独优化） |
-| L_G | `E[log(1-D(x'))]` | 600 | 生成器对抗损失 |
-| L_div | `d_f / d_I` | 200 | 特征扰动/图像差异，防模式坍缩 |
-| L_clip | `1 - cos(clip_real, clip_fake)` | 50 | CLIP 语义对齐损失 |
-| L_reg | `mean(\|style\|)` | 0.01 | Bridge MLP 输出 L1 稀疏约束 |
+| 损失 | 公式 | 说明 |
+|------|------|------|
+| L_rec | `MSE(x, x')` | 像素级重建损失 |
+| L_lpips | AlexNet LPIPS | 感知细节损失 |
+| L_D | `-E[log D(x)] - E[log(1-D(x'))] + λ·GP` | WGAN-GP 判别器损失（单独优化） |
+| L_G | `E[log(1-D(x'))]` | 生成器对抗损失 |
+| L_div | `d_f / d_I` | 特征扰动/图像差异，防模式坍缩 |
+| L_clip | `1 - cos(clip_real, clip_fake)` | CLIP 语义对齐损失 |
+| L_reg | `mean(\|style\|)` | Bridge MLP 输出 L1 稀疏约束 |
+
+**三阶段渐进训练策略（exp6）**：
+
+| 阶段 | 目标 | L_rec | L_lpips | L_G | L_div | L_clip | L_reg | lr | lr_D |
+|------|------|-------|---------|-----|-------|--------|-------|-----|------|
+| Stage1 (ep1-35) | 稳建基础人脸 | 1.0 | 0 | 0 | 0 | 5 | 0.005 | 1e-4 | 0 |
+| Stage2 (ep36-75) | 引入结构细节 | 0.5 | 50 | 200 | 0 | 30 | 0.01 | 5e-5 | 2e-5 |
+| Stage3 (ep76-100) | 精细打磨+多样性 | 0.001 | 150 | 600 | 200 | 50 | 0.01 | 2e-5 | 1e-5 |
 
 | 超参数 | 值 | 说明 |
 |--------|-----|------|
 | `batch_size` | 2 | 批次大小 |
-| `epoches` | 1 | 训练轮数 |
-| `lr` | 1e-4 | Bridge MLP 学习率（Adam） |
-| `lr_D` | 1e-4 | 判别器学习率（Adam） |
-| `max_norm` | 1.0 | 梯度裁剪阈值 |
+| `accum_steps` | 4 | 梯度累积步数（等效 batch_size=8） |
+| `total_epochs` | 100 | 总训练轮数 |
+| `warmup_epochs` | 5 | 阶段切换平滑过渡轮数 |
+| `truncation_psi_start` | 0.5 | 截断热身起始值（Stage1 前半段） |
 
   - 模型架构：
 
@@ -120,8 +128,13 @@ $$L_{total} = \lambda_{rec} L_{rec} + \lambda_{lpips} L_{lpips} + \lambda_G L_G 
     - **L_div**：多样性损失，防止模式坍缩
     - **L_clip**：CLIP 余弦相似度损失，语义对齐
     - **L_reg**：L1 正则，约束 Bridge MLP 输出稀疏
-5.  **训练策略**：Step1 训练判别器 D，Step2 训练 Bridge MLP（L_rec + L_lpips + L_G + L_div + L_clip + L_reg），CLIP 和 MobileStyleGAN 全程冻结
-6.  **消融实验**：对不同损失函数组合进行消融实验（exp1 ~ exp5）
+5.  **训练策略**：
+    - 三阶段渐进训练：Stage1（纯重建）→ Stage2（感知+对抗）→ Stage3（多样性+精细打磨）
+    - 梯度累积：accum_steps=4，等效 batch_size=8
+    - 阶段切换平滑过渡：warmup_epochs=5 线性插值
+    - 截断热身：Stage1 前半段 psi 从 0.5 线性增加到 1.0，保证初期生成质量
+    - Step1 训练判别器 D，Step2 训练 Bridge MLP，CLIP 和 MobileStyleGAN 全程冻结
+6.  **消融实验**：对不同损失函数组合进行消融实验（exp1 ~ exp6）
 
 **基线模型参考**：
 -   （例如：DALL·E 2， Stable Diffusion， 或 简单的 Conditional GAN + CLIP）
@@ -148,6 +161,7 @@ CelebA-HQ(git clone https://www.modelscope.cn/datasets/OmniData/CelebA-HQ.git) (
 -   [x] Bridge MLP 改为输出 W+ latent code（23×512维）
 -   [x] 搭建训练流程（消融实验配置、图像保存、损失记录、模型保存）
 -   [x] 消融实验 exp1 ~ exp5，对齐 CLIP2GAN 原文损失公式
+-   [x] 三阶段渐进训练（exp6）：梯度累积、阶段切换平滑过渡、截断热身
 -   [ ] 训练与调参
 -   [ ] 评估指标实现（FID、CLIP-Score）
 -   [ ] 文本到图像推理
@@ -167,7 +181,7 @@ pip install -r requirements.txt
 
 **训练**
 ```bash
-# 修改 training.py 顶部的统一参数配置（exp_name、batch_size、epoches 等）
+# 修改 training.py 顶部的统一参数配置（exp_name、total_epochs、三阶段权重等）
 python training.py
 ```
 
