@@ -293,7 +293,7 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
             batch_count += 1
             optimizer_brig.zero_grad()
             loss_total.backward()
-            torch.nn.utils.clip_grad_norm_(birdgeNetwork.parameters(), max_norm=1.0)
+            # torch.nn.utils.clip_grad_norm_(birdgeNetwork.parameters(), max_norm=1.0)
             optimizer_brig.step()
 
             epoch_L_G += loss_G.item()

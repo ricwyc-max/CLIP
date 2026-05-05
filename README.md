@@ -69,7 +69,7 @@
 
 | 项目 | 配置 |
 |------|------|
-| GPU | NVIDIA GeForce RTX 4060 Laptop GPU(8GBs) |
+| GPU | NVIDIA GeForce RTX 4060 Laptop GPU(8GB) |
 | 框架 | PyTorch 2.7.1 + CUDA 11.8 |
 | CLIP 模型 | ViT-B-32（laion2b_s34b_b79k），512维输出，冻结 |
 | 生成器 | MobileStyleGAN（FFHQ v2），style_dim=512，输出 1024×1024，冻结 |
