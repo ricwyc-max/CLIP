@@ -65,6 +65,38 @@
 | <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test2.png" width="300">  |  <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test3.png" width="300">  |
 | <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test4.png" width="300">  |  <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test5.png" width="300">  |
 
+  - 训练设备与超参数：
+
+| 项目 | 配置 |
+|------|------|
+| GPU | NVIDIA CUDA（自动检测，支持 CPU 回退） |
+| 框架 | PyTorch 2.7.1 + CUDA 11.8 |
+| CLIP 模型 | ViT-B-32（laion2b_s34b_b79k），512维输出，冻结 |
+| 生成器 | MobileStyleGAN（FFHQ v2），style_dim=512，输出 1024×1024，冻结 |
+| 判别器 | MobileStyleGAN Discriminator（1024×1024，3通道） |
+| 数据集 | CelebA-HQ（30000 张 1024×1024 人脸图像） |
+
+  - 损失函数与超参数配置（exp5）：
+
+$$L_{total} = \lambda_{rec} L_{rec} + \lambda_{lpips} L_{lpips} + \lambda_G L_G + \lambda_{div} L_{div} + \lambda_{clip} L_{clip} + \lambda_{reg} L_{reg}$$
+
+| 损失 | 公式 | 权重 | 说明 |
+|------|------|------|------|
+| L_rec | `MSE(x, x')` | 0.001 | 像素级重建损失 |
+| L_lpips | AlexNet LPIPS | 150 | 感知细节损失 |
+| L_D | `-E[log D(x)] - E[log(1-D(x'))] + λ·GP` | — | WGAN-GP 判别器损失（单独优化） |
+| L_G | `E[log(1-D(x'))]` | 600 | 生成器对抗损失 |
+| L_div | `d_f / d_I` | 200 | 特征扰动/图像差异，防模式坍缩 |
+| L_clip | `1 - cos(clip_real, clip_fake)` | 50 | CLIP 语义对齐损失 |
+| L_reg | `mean(\|style\|)` | 0.01 | Bridge MLP 输出 L1 稀疏约束 |
+
+| 超参数 | 值 | 说明 |
+|--------|-----|------|
+| `batch_size` | 2 | 批次大小 |
+| `epoches` | 1 | 训练轮数 |
+| `lr` | 1e-4 | Bridge MLP 学习率（Adam） |
+| `lr_D` | 1e-4 | 判别器学习率（Adam） |
+| `max_norm` | 1.0 | 梯度裁剪阈值 |
 
   - 模型架构：
 
@@ -74,18 +106,22 @@
 ```
 原始图片 (3, 1024, 1024)
     → CLIP Image Encoder → img_embedding (512维)
-    → [Bridge MLP] → style (512维)
+    → [Bridge MLP] → W+ latent code (23×512维)
     → MobileStyleGAN → 生成图片 (3, 1024, 1024)
 ```
-1.  **图像编码**：输入图片 \( \rightarrow \) CLIP ViT-B-32 \( \rightarrow \) 512维图像特征（冻结，不训练）
-2.  **特征转换**：图像特征 \( \rightarrow \) Bridge MLP（12层全连接） \( \rightarrow \) 512维风格向量（**可训练**）
-3.  **图像生成**：风格向量 \( \rightarrow \) MobileStyleGAN MappingNetwork + SynthesisNetwork \( \rightarrow \) 1024×1024图片（冻结，不训练）
-4.  **损失函数**：
-    - **L_rec**：重建损失（L2范数），衡量生成图与原图的像素级差异
+1.  **图像编码**：输入图片 → CLIP ViT-B-32 → 512维图像特征（冻结，不训练）
+2.  **特征转换**：图像特征 → Bridge MLP（12层全连接） → W+ latent code（23×512维，**可训练**）
+3.  **图像生成**：W+ latent code → MobileStyleGAN SynthesisNetwork → 1024×1024图片（冻结，不训练）
+4.  **损失函数**（对齐 CLIP2GAN 原文公式 $L_{min} = L_{rec} + \lambda_{lpips}L_{lpips} + \lambda_G L_G + \lambda_{div}L_{div}$）：
+    - **L_rec**：重建损失（MSE），衡量生成图与原图的像素级差异
+    - **L_lpips**：感知损失（AlexNet LPIPS），关注生成图细节质量
     - **L_D**：WGAN-GP 判别器损失（标准GAN损失 + 梯度惩罚）
-    - **L_G**：生成器对抗损失，支持 saturating / non-saturating 两种形式
-5.  **训练策略**：Step1 训练判别器 D，Step2 训练 Bridge MLP（L_rec + L_G），CLIP 和 MobileStyleGAN 全程冻结
-6.  **消融实验**：对不同损失函数组合（是否使用 D、L_G 权重等）进行消融实验
+    - **L_G**：生成器对抗损失（non-saturating log）
+    - **L_div**：多样性损失，防止模式坍缩
+    - **L_clip**：CLIP 余弦相似度损失，语义对齐
+    - **L_reg**：L1 正则，约束 Bridge MLP 输出稀疏
+5.  **训练策略**：Step1 训练判别器 D，Step2 训练 Bridge MLP（L_rec + L_lpips + L_G + L_div + L_clip + L_reg），CLIP 和 MobileStyleGAN 全程冻结
+6.  **消融实验**：对不同损失函数组合进行消融实验（exp1 ~ exp5）
 
 **基线模型参考**：
 -   （例如：DALL·E 2， Stable Diffusion， 或 简单的 Conditional GAN + CLIP）
@@ -95,8 +131,8 @@
 
 ## 4. 实验计划
 
--   **数据集**：  
-CelebAMask-HQ(https://github.com/switchablenorms/CelebAMask-HQ)  
+-   **数据集**：
+CelebAMask-HQ(https://github.com/switchablenorms/CelebAMask-HQ)
 CelebA-HQ(git clone https://www.modelscope.cn/datasets/OmniData/CelebA-HQ.git) (https://huggingface.co/datasets/iamivan11/CelebA-HQ-zip)
 -   **评估指标**：FID（图像质量）、CLIP-Score（语义一致性）、人工评估
 -   **对比实验**：CLIP 引导的不同质量生成器对比
@@ -108,8 +144,10 @@ CelebA-HQ(git clone https://www.modelscope.cn/datasets/OmniData/CelebA-HQ.git) (
 -   [x] 环境配置与 CLIP 预训练权重加载
 -   [x] 搭建生成器骨架（MobileStyleGAN）
 -   [x] 封装 CLIP2GAN 统一接口（CLIP + MobileStyleGAN）
--   [x] 实现损失函数模块（L_rec、L_D WGAN-GP、L_G 饱和/非饱和）
+-   [x] 实现损失函数模块（L_rec、L_D、L_G、L_lpips、L_div、L_clip、L_reg）
+-   [x] Bridge MLP 改为输出 W+ latent code（23×512维）
 -   [x] 搭建训练流程（消融实验配置、图像保存、损失记录、模型保存）
+-   [x] 消融实验 exp1 ~ exp5，对齐 CLIP2GAN 原文损失公式
 -   [ ] 训练与调参
 -   [ ] 评估指标实现（FID、CLIP-Score）
 -   [ ] 文本到图像推理
@@ -289,8 +327,8 @@ zipp                      3.23.1
 ```text
 CLIP
 ├── CLIP2GAN.py         CLIP + MobileStyleGAN 统一封装类
-├── bridgeNetwork.py    Bridge MLP 桥接网络（12层全连接，512→512）
-├── lossFunction.py     损失函数模块（L_rec、L_D、L_G）
+├── bridgeNetwork.py    Bridge MLP 桥接网络（12层全连接，512→23×512 W+ latent code）
+├── lossFunction.py     损失函数模块（L_rec、L_D、L_G、L_lpips、L_div、L_clip、L_reg）
 ├── training.py         训练模块（消融实验、图像保存、损失记录）
 ├── LoadDatasets.py     数据集加载模块
 ├── testing.py          测试模块
