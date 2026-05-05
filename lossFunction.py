@@ -305,3 +305,54 @@ def L_div(feat_orig, feat_noisy, img_orig, img_noisy):
 
     loss_div = d_f / d_I
     return loss_div
+
+
+# ============================================================================
+#
+#                           6. CLIP 余弦相似度损失 L_clip
+#
+# ============================================================================
+
+def L_clip(clip_real, clip_fake):
+    """
+    CLIP 余弦相似度损失
+
+    公式: L_clip = 1 - cos(clip_real, clip_fake)
+
+    让生成图的 CLIP 特征与原图的 CLIP 特征对齐。
+    两者都是 L2 归一化后的向量，余弦相似度 = 点积。
+
+    参数:
+        clip_real: 原图的 CLIP 特征, shape (B, 512)，已 L2 归一化
+        clip_fake: 生成图的 CLIP 特征, shape (B, 512)，已 L2 归一化
+
+    返回:
+        loss_clip: 标量张量（可反向传播），值域 [0, 2]
+    """
+    cos_sim = (clip_real * clip_fake).sum(dim=-1)
+    loss_clip = (1 - cos_sim).mean()
+    return loss_clip
+
+
+# ============================================================================
+#
+#                           7. L1 正则损失 L_reg
+#
+# ============================================================================
+
+def L_reg(style_vector):
+    """
+    L1 正则损失
+
+    公式: L_reg = mean(|style_vector|)
+
+    对 Bridge MLP 输出的 style 向量做 L1 稀疏约束，
+    防止 style 值过大，稳定训练。
+
+    参数:
+        style_vector: Bridge MLP 输出, shape (B, 23, 512)
+
+    返回:
+        loss_reg: 标量张量（可反向传播）
+    """
+    return torch.abs(style_vector).mean()

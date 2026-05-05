@@ -65,15 +65,17 @@ img_save_interval = 50      # 每 N 张图片保存一次单张生成图
 use_D = True                # 是否使用判别器
 use_lpips = True            # 是否使用 LPIPS 感知损失
 use_div = True              # 是否使用多样性损失
-rec_mode = "l2"             # L_rec 模式: L2 范数平方（原文）
-lam_L_rec = 1               # L_rec 权重（基准，系数=1，量级 ~94000）
+rec_mode = "mse"             # L_rec 模式: mse 范数平方
+lam_L_rec = 0.001               # L_rec 权重（基准，系数=0.001 ，量级 ~94）
 lam_lpips = 150             # λ_lpips（LPIPS ~0.15，×150 → ~22.5）
 lam_G = 600                 # λ_G（L_G ~0.04，×600 → ~24）
 lam_div = 200               # λ_div（L_div ~0.1，×200 → ~20）
+lam_clip = 50               # λ_clip（CLIP 余弦相似度损失，值域 [0,2]，×50 → ~50）
+lam_reg = 0.01              # λ_reg（L1 正则，style 向量量级 ~1，×0.01 → ~0.01）
 epoches = 1                 # 训练轮数
 batch_size = 2              # 批次大小
 lr = 0.0001                 # Bridge MLP 学习率
-lr_D = 0.0001              # 判别器学习率（比 Bridge 低，防止 D 太强）
+lr_D = 0.0001              # 判别器学习率
 
 
 # ============================================================================
@@ -166,6 +168,8 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
         "L_rec": [],
         "L_lpips": [],
         "L_div": [],
+        "L_clip": [],
+        "L_reg": [],
         "L_total": []
     }
     best_loss = float('inf')
@@ -190,6 +194,8 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
         epoch_L_rec = 0.0
         epoch_L_lpips = 0.0
         epoch_L_div = 0.0
+        epoch_L_clip = 0.0
+        epoch_L_reg = 0.0
         epoch_L_total = 0.0
         batch_count = 0
 
@@ -260,7 +266,29 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
                 else:
                     loss_div = torch.tensor(0.0, device=device)
 
-                loss_total = loss_rec * lam_L_rec + loss_lpips * lam_lpips + loss_G * lam_G + loss_div * lam_div
+                # CLIP 余弦相似度损失：生成图 CLIP 特征 vs 原图 CLIP 特征
+                fake_imgs_01 = (fake_imgs.clamp(-1, 1) + 1) / 2
+                fake_clip_list = []
+                for bi in range(fake_imgs_01.shape[0]):
+                    fi = fake_imgs_01[bi]
+                    scale_f = 224 / min(fi.shape[1], fi.shape[2])
+                    nh_f, nw_f = int(fi.shape[1] * scale_f), int(fi.shape[2] * scale_f)
+                    fi = F.interpolate(fi.unsqueeze(0), size=(nh_f, nw_f), mode='bicubic', align_corners=False)
+                    t_f = (nh_f - 224) // 2
+                    l_f = (nw_f - 224) // 2
+                    fi = fi[:, :, t_f:t_f+224, l_f:l_f+224]
+                    fi = (fi - clip_mean) / clip_std
+                    fake_clip_list.append(fi)
+                fake_imgs_clip = torch.cat(fake_clip_list, dim=0)
+                fake_feat = CLIPandGAN.encode_image(fake_imgs_clip)
+                loss_clip = LF.L_clip(img_feat, fake_feat)
+
+                # L1 正则：约束 style 向量稀疏
+                loss_reg = LF.L_reg(style_vector)
+
+                loss_total = (loss_rec * lam_L_rec + loss_lpips * lam_lpips
+                              + loss_G * lam_G + loss_div * lam_div
+                              + loss_clip * lam_clip + loss_reg * lam_reg)
 
             batch_count += 1
             optimizer_brig.zero_grad()
@@ -272,6 +300,8 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
             epoch_L_rec += loss_rec.item()
             epoch_L_lpips += loss_lpips.item()
             epoch_L_div += loss_div.item()
+            epoch_L_clip += loss_clip.item()
+            epoch_L_reg += loss_reg.item()
             epoch_L_total += loss_total.item()
 
             # 每个 batch 打印一次日志
@@ -280,7 +310,8 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
                   f"Imgs {imgs_done}/{total_imgs} | "
                   f"L_D={loss_D.item():.4f}  L_G={loss_G.item():.4f}  "
                   f"L_rec={loss_rec.item():.4f}  L_lpips={loss_lpips.item():.4f}  "
-                  f"L_div={loss_div.item():.4f}  L_total={loss_total.item():.4f}")
+                  f"L_div={loss_div.item():.4f}  L_clip={loss_clip.item():.4f}  "
+                  f"L_reg={loss_reg.item():.4f}  L_total={loss_total.item():.4f}")
 
             # 每 img_save_interval 张图片保存一张生成图和对应的原图
             total_imgs_done += batch_size
@@ -299,6 +330,8 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
         avg_L_rec = epoch_L_rec / batch_count
         avg_L_lpips = epoch_L_lpips / batch_count
         avg_L_div = epoch_L_div / batch_count
+        avg_L_clip = epoch_L_clip / batch_count
+        avg_L_reg = epoch_L_reg / batch_count
         avg_L_total = epoch_L_total / batch_count
 
         loss_history["epoch"].append(epoch)
@@ -307,12 +340,15 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
         loss_history["L_rec"].append(avg_L_rec)
         loss_history["L_lpips"].append(avg_L_lpips)
         loss_history["L_div"].append(avg_L_div)
+        loss_history["L_clip"].append(avg_L_clip)
+        loss_history["L_reg"].append(avg_L_reg)
         loss_history["L_total"].append(avg_L_total)
 
         print(f"[Epoch {epoch}/{epoches}] "
               f"L_D={avg_L_D:.4f}  L_G={avg_L_G:.4f}  "
               f"L_rec={avg_L_rec:.4f}  L_lpips={avg_L_lpips:.4f}  "
-              f"L_div={avg_L_div:.4f}  L_total={avg_L_total:.4f}")
+              f"L_div={avg_L_div:.4f}  L_clip={avg_L_clip:.4f}  "
+              f"L_reg={avg_L_reg:.4f}  L_total={avg_L_total:.4f}")
 
         # ====================================================================
         # 保存最佳模型（按 L_total）
@@ -355,7 +391,7 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
     # ========================================================================
     # 绘制损失曲线
     # ========================================================================
-    fig, axes = plt.subplots(2, 3, figsize=(18, 8))
+    fig, axes = plt.subplots(3, 3, figsize=(18, 12))
     fig.suptitle(f"Training Loss - {exp_name}", fontsize=14)
 
     axes[0, 0].plot(loss_history["epoch"], loss_history["L_D"], 'b-')
@@ -378,15 +414,27 @@ def training(epoches, CLIPandGAN, birdgeNetwork, optimizer_brig,
     axes[1, 0].set_xlabel("Epoch")
     axes[1, 0].set_ylabel("Loss")
 
-    axes[1, 1].plot(loss_history["epoch"], loss_history["L_total"], 'm-')
-    axes[1, 1].set_title("L_total")
+    axes[1, 1].plot(loss_history["epoch"], loss_history["L_div"], 'y-')
+    axes[1, 1].set_title("L_div (Diversity)")
     axes[1, 1].set_xlabel("Epoch")
     axes[1, 1].set_ylabel("Loss")
 
-    axes[1, 2].plot(loss_history["epoch"], loss_history["L_div"], 'y-')
-    axes[1, 2].set_title("L_div (Diversity)")
+    axes[1, 2].plot(loss_history["epoch"], loss_history["L_clip"], 'k-')
+    axes[1, 2].set_title("L_clip (CLIP Cosine)")
     axes[1, 2].set_xlabel("Epoch")
     axes[1, 2].set_ylabel("Loss")
+
+    axes[2, 0].plot(loss_history["epoch"], loss_history["L_reg"], 'tab:orange')
+    axes[2, 0].set_title("L_reg (L1 Regularization)")
+    axes[2, 0].set_xlabel("Epoch")
+    axes[2, 0].set_ylabel("Loss")
+
+    axes[2, 1].plot(loss_history["epoch"], loss_history["L_total"], 'm-')
+    axes[2, 1].set_title("L_total")
+    axes[2, 1].set_xlabel("Epoch")
+    axes[2, 1].set_ylabel("Loss")
+
+    axes[2, 2].axis('off')
 
     plt.tight_layout()
     curve_path = os.path.join(exp_dir, "loss_curve.png")
