@@ -61,12 +61,12 @@ CLIP_STD  = torch.tensor([0.26862954, 0.26130258, 0.27577711]).view(1, 3, 1, 1)
 # ============================================================================
 exp_name = "exp6"           # 实验文件夹名称
 save_interval = 1           # 每 N 轮保存一次图像（完整 batch 网格图）
-img_save_interval = 50      # 每 N 张图片保存一次单张生成图
+img_save_interval = 1000      # 每 N 张图片保存一次单张生成图
 use_lpips = True            # 是否使用 LPIPS 感知损失
 use_div = True              # 是否使用多样性损失
 rec_mode = "mse"            # L_rec 模式
 batch_size = 2              # 批次大小
-accum_steps = 4             # 梯度累积步数（等效 batch_size = 2*4 = 8）
+accum_steps = 12             # 梯度累积步数（等效 batch_size = 2*12 = 24）
 
 # ============================================================================
 #                        三阶段渐进训练配置
@@ -249,6 +249,16 @@ def training(CLIPandGAN, birdgeNetwork, optimizer_brig,
     # 截断热身：style_mean 用于截断 trick
     style_mean = CLIPandGAN.style_mean.to(device)  # (1, 512)
 
+    # 预计算常量（数据集固定 1024×1024，这些值每 batch 相同）
+    _scale = 224 / 1024
+    _new_h, _new_w = int(1024 * _scale), int(1024 * _scale)
+    _top = (_new_h - 224) // 2
+    _left = (_new_w - 224) // 2
+
+    # 阶段边界（只算一次）
+    s1_end = int(total_epochs * stage1_ratio)
+    truncation_end = int(s1_end * truncation_ratio)
+
     # ========================================================================
     # 训练主循环
     # ========================================================================
@@ -274,15 +284,10 @@ def training(CLIPandGAN, birdgeNetwork, optimizer_brig,
         use_D = stage_cfg["use_D"]
 
         # 截断热身：仅在 Stage1 前半段生效，psi 从 0.5 线性增加到 1.0
-        s1_end = int(total_epochs * stage1_ratio)
-        truncation_end = int(s1_end * truncation_ratio)  # Stage1 前半段结束的 epoch
         if epoch <= truncation_end and stage_name == "Stage1":
-            # 线性插值：psi 从 truncation_psi_start → 1.0
             psi = truncation_psi_start + (1.0 - truncation_psi_start) * (epoch / truncation_end)
         else:
-            psi = 1.0  # 后期不截断
-
-        s2_end = s1_end + int(total_epochs * stage2_ratio)
+            psi = 1.0
         print(f"\n[Epoch {epoch}/{total_epochs}] {stage_name} "
               f"(ep{stage_cfg.get('_range', '?')}) | "
               f"lr={stage_cfg['lr']:.1e} lr_D={stage_cfg['lr_D']:.1e} | "
@@ -306,13 +311,8 @@ def training(CLIPandGAN, birdgeNetwork, optimizer_brig,
 
             # real_imgs_clip: (B, 3, 224, 224), CLIP 预处理（与 openclip 一致）
             # Resize(224): 短边缩放到 224，保持比例 → CenterCrop(224) → Normalize
-            _, _, h, w = real_imgs.shape
-            scale = 224 / min(h, w)
-            new_h, new_w = int(h * scale), int(w * scale)
-            real_imgs_clip = F.interpolate(real_imgs, size=(new_h, new_w), mode='bicubic', align_corners=False)
-            top = (new_h - 224) // 2
-            left = (new_w - 224) // 2
-            real_imgs_clip = real_imgs_clip[:, :, top:top+224, left:left+224]
+            real_imgs_clip = F.interpolate(real_imgs, size=(_new_h, _new_w), mode='bicubic', align_corners=False)
+            real_imgs_clip = real_imgs_clip[:, :, _top:_top+224, _left:_left+224]
             real_imgs_clip = (real_imgs_clip - clip_mean) / clip_std
 
             # real_imgs_scaled: (B, 3, 1024, 1024), 值域 [-1,1]
@@ -333,6 +333,7 @@ def training(CLIPandGAN, birdgeNetwork, optimizer_brig,
                 fake_imgs = CLIPandGAN.synthesis_net(style_vector.to(device))["img"].clamp(-1, 1)
 
             if use_D and D is not None:
+
                 loss_D = LF.L_D(D, real_imgs_scaled, fake_imgs)
                 optimizer_D.zero_grad()
                 loss_D.backward()
@@ -377,19 +378,11 @@ def training(CLIPandGAN, birdgeNetwork, optimizer_brig,
                     loss_div = torch.tensor(0.0, device=device)
 
                 # CLIP 余弦相似度损失：生成图 CLIP 特征 vs 原图 CLIP 特征
+                # 使用与 real_imgs 相同的批量化预处理（数据集固定 1024×1024）
                 fake_imgs_01 = (fake_imgs.clamp(-1, 1) + 1) / 2
-                fake_clip_list = []
-                for bi in range(fake_imgs_01.shape[0]):
-                    fi = fake_imgs_01[bi]
-                    scale_f = 224 / min(fi.shape[1], fi.shape[2])
-                    nh_f, nw_f = int(fi.shape[1] * scale_f), int(fi.shape[2] * scale_f)
-                    fi = F.interpolate(fi.unsqueeze(0), size=(nh_f, nw_f), mode='bicubic', align_corners=False)
-                    t_f = (nh_f - 224) // 2
-                    l_f = (nw_f - 224) // 2
-                    fi = fi[:, :, t_f:t_f+224, l_f:l_f+224]
-                    fi = (fi - clip_mean) / clip_std
-                    fake_clip_list.append(fi)
-                fake_imgs_clip = torch.cat(fake_clip_list, dim=0)
+                fake_imgs_clip = F.interpolate(fake_imgs_01, size=(_new_h, _new_w), mode='bicubic', align_corners=False)
+                fake_imgs_clip = fake_imgs_clip[:, :, _top:_top+224, _left:_left+224]
+                fake_imgs_clip = (fake_imgs_clip - clip_mean) / clip_std
                 fake_feat = CLIPandGAN.encode_image(fake_imgs_clip)
                 loss_clip = LF.L_clip(img_feat, fake_feat)
 
@@ -414,23 +407,34 @@ def training(CLIPandGAN, birdgeNetwork, optimizer_brig,
             if (batch_count % accum_steps == 0) or (batch_count == total_batches):
                 optimizer_brig.step()
                 optimizer_brig.zero_grad()
+                print(f"    >> 梯度更新 (batch {batch_count})")
 
-            epoch_L_G += loss_G.item()
-            epoch_L_rec += loss_rec.item()
-            epoch_L_lpips += loss_lpips.item()
-            epoch_L_div += loss_div.item()
-            epoch_L_clip += loss_clip.item()
-            epoch_L_reg += loss_reg.item()
-            epoch_L_total += loss_total.item()
+            # 缓存 .item() 值，避免重复 CUDA 同步
+            l_d_val = loss_D.item()
+            l_g_val = loss_G.item()
+            l_rec_val = loss_rec.item()
+            l_lpips_val = loss_lpips.item()
+            l_div_val = loss_div.item()
+            l_clip_val = loss_clip.item()
+            l_reg_val = loss_reg.item()
+            l_total_val = loss_total.item()
+
+            epoch_L_G += l_g_val
+            epoch_L_rec += l_rec_val
+            epoch_L_lpips += l_lpips_val
+            epoch_L_div += l_div_val
+            epoch_L_clip += l_clip_val
+            epoch_L_reg += l_reg_val
+            epoch_L_total += l_total_val
 
             # 每个 batch 打印一次日志
             imgs_done = batch_count * batch_size
-            print(f"  [Epoch {epoch}] Batch {batch_count}/{total_batches} | "
+            print(f"  [Epoch {epoch} | {stage_name} | psi={psi:.3f}] Batch {batch_count}/{total_batches} | "
                   f"Imgs {imgs_done}/{total_imgs} | "
-                  f"L_D={loss_D.item():.4f}  L_G={loss_G.item():.4f}  "
-                  f"L_rec={loss_rec.item():.4f}  L_lpips={loss_lpips.item():.4f}  "
-                  f"L_div={loss_div.item():.4f}  L_clip={loss_clip.item():.4f}  "
-                  f"L_reg={loss_reg.item():.4f}  L_total={loss_total.item():.4f}")
+                  f"L_D={l_d_val:.4f}  L_G={l_g_val:.4f}  "
+                  f"L_rec={l_rec_val:.4f}  L_lpips={l_lpips_val:.4f}  "
+                  f"L_div={l_div_val:.4f}  L_clip={l_clip_val:.4f}  "
+                  f"L_reg={l_reg_val:.4f}  L_total={l_total_val:.4f}")
 
             # 每 img_save_interval 张图片保存一张生成图和对应的原图
             total_imgs_done += batch_size

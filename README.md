@@ -101,9 +101,9 @@ $$L_{total} = \lambda_{rec} L_{rec} + \lambda_{lpips} L_{lpips} + \lambda_G L_G 
 | 超参数 | 值 | 说明 |
 |--------|-----|------|
 | `batch_size` | 2 | 批次大小 |
-| `accum_steps` | 4 | 梯度累积步数（等效 batch_size=8） |
+| `accum_steps` | 24 | 梯度累积步数（等效 batch_size=48） |
 | `total_epochs` | 100 | 总训练轮数 |
-| `warmup_epochs` | 5 | 阶段切换平滑过渡轮数 |
+| `warmup_epochs` | 1000 | 阶段切换平滑过渡轮数 |
 | `truncation_psi_start` | 0.5 | 截断热身起始值（Stage1 前半段） |
 
   - 模型架构：
@@ -130,10 +130,11 @@ $$L_{total} = \lambda_{rec} L_{rec} + \lambda_{lpips} L_{lpips} + \lambda_G L_G 
     - **L_reg**：L1 正则，约束 Bridge MLP 输出稀疏
 5.  **训练策略**：
     - 三阶段渐进训练：Stage1（纯重建）→ Stage2（感知+对抗）→ Stage3（多样性+精细打磨）
-    - 梯度累积：accum_steps=4，等效 batch_size=8
-    - 阶段切换平滑过渡：warmup_epochs=5 线性插值
+    - 梯度累积：accum_steps=24，等效 batch_size=48
+    - 阶段切换平滑过渡：warmup_epochs=1000 线性插值
     - 截断热身：Stage1 前半段 psi 从 0.5 线性增加到 1.0，保证初期生成质量
     - Step1 训练判别器 D，Step2 训练 Bridge MLP，CLIP 和 MobileStyleGAN 全程冻结
+    - 日志增强：每 batch 打印阶段名、psi 值，梯度更新时打印提示
 6.  **消融实验**：对不同损失函数组合进行消融实验（exp1 ~ exp6）
 
 **基线模型参考**：
