@@ -103,7 +103,7 @@ $$L_{total} = \lambda_{rec} L_{rec} + \lambda_{lpips} L_{lpips} + \lambda_G L_G 
 | `batch_size` | 2 | 批次大小 |
 | `accum_steps` | 24 | 梯度累积步数（等效 batch_size=48） |
 | `total_epochs` | 100 | 总训练轮数 |
-| `warmup_epochs` | 1000 | 阶段切换平滑过渡轮数 |
+| `warmup_epochs` | 10 | 阶段切换平滑过渡轮数 |
 | `truncation_psi_start` | 0.5 | 截断热身起始值（Stage1 前半段） |
 
   - 模型架构：
