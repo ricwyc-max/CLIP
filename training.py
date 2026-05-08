@@ -75,7 +75,7 @@ total_epochs = 100          # 总训练轮数
 stage1_ratio = 0.35         # 阶段一占比 35%（ep1-35）
 stage2_ratio = 0.40         # 阶段二占比 40%（ep36-75）
 stage3_ratio = 0.25         # 阶段三占比 25%（ep76-100）
-warmup_epochs = 10           # 阶段切换时的平滑过渡轮数eopchs
+warmup_epochs = 5           # 阶段切换时的平滑过渡轮数eopchs
 
 # 截断热身（仅 Stage1 前半段）
 truncation_psi_start = 0.5  # 截断起始值（0.5 = 强截断，保证初始生成质量）
