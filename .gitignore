@@ -9,3 +9,4 @@ StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/model/mobilestylegan_ffhq_v2.ckpt
 /AlexNet/model
 test_clip2gan.png
 /skills
+*.zip
