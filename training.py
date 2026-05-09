@@ -30,6 +30,16 @@ _MOBILE_STYLEGAN_ROOT = os.path.join(
 if _MOBILE_STYLEGAN_ROOT not in sys.path:
     sys.path.insert(0, _MOBILE_STYLEGAN_ROOT)
 
+# ========== 强制修复模型加载问题 ==========
+# 1. 禁用离线模式（允许加载模型）
+if "HF_HUB_OFFLINE" in os.environ:
+    print(f"检测到离线模式，已临时禁用: {os.environ['HF_HUB_OFFLINE']}")
+    del os.environ["HF_HUB_OFFLINE"]
+
+# 2. 设置缓存目录为项目本地 model 目录
+os.environ['HF_HOME'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'CLIP', 'mobileCLIP', 'model')
+print(f"HF缓存目录: {os.environ['HF_HOME']}")
+
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
