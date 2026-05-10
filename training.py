@@ -155,6 +155,8 @@ def get_current_weights(epoch):
         for k in cfg:
             if k in prev_cfg:
                 cfg[k] = prev_cfg[k] + (cfg[k] - prev_cfg[k]) * t
+        # use_D 必须是 bool，不能被插值为 float
+        cfg["use_D"] = True if cfg["use_D"] else False
 
     return cfg, stage_name
 
@@ -342,7 +344,10 @@ def training(CLIPandGAN, birdgeNetwork, optimizer_brig,
                     style_vector = style_mean + psi * (style_vector - style_mean)
                 fake_imgs = CLIPandGAN.synthesis_net(style_vector.to(device))["img"].clamp(-1, 1)
 
-            if use_D and D is not None:
+            # minibatch_discrimination 要求 batch_size >= stddev_group
+            can_use_D = use_D and D is not None and real_imgs.size(0) >= D.stddev_group
+
+            if can_use_D:
 
                 loss_D = LF.L_D(D, real_imgs_scaled, fake_imgs)
                 optimizer_D.zero_grad()
@@ -362,7 +367,7 @@ def training(CLIPandGAN, birdgeNetwork, optimizer_brig,
                     style_vector = style_mean + psi * (style_vector - style_mean)
                 fake_imgs = CLIPandGAN.synthesis_net(style_vector.to(device))["img"].clamp(-1, 1)
 
-                if use_D and D is not None:
+                if can_use_D:
                     loss_G = LF.L_G(D, fake_imgs)
                 else:
                     loss_G = torch.tensor(0.0, device=device)
