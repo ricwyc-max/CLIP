@@ -75,8 +75,8 @@ img_save_interval = 1000      # 每 N 张图片保存一次单张生成图
 use_lpips = True            # 是否使用 LPIPS 感知损失
 use_div = True              # 是否使用多样性损失
 rec_mode = "mse"            # L_rec 模式
-batch_size = 2              # 批次大小
-accum_steps = 12             # 梯度累积步数（等效 batch_size = 2*12 = 24）
+batch_size = 8              # 批次大小
+accum_steps = 4             # 梯度累积步数（等效 batch_size = 4*8 = 32）
 
 # ============================================================================
 #                        三阶段渐进训练配置
