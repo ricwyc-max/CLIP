@@ -95,21 +95,21 @@ truncation_ratio = 0.5      # 截断热身占 Stage1 的比例（前 50% 的 Sta
 stage1 = {
     "lam_L_rec": 1.0, "lam_lpips": 0, "lam_G": 0, "lam_div": 0,
     "lam_clip": 5, "lam_reg": 0.005,
-    "lr": 1e-4, "lr_D": 0, "use_D": False
+    "lr": 1e-4, "lr_D": 0
 }
 
 # 阶段二：引入结构细节（加入 LPIPS 和对抗损失）
 stage2 = {
     "lam_L_rec": 0.5, "lam_lpips": 50, "lam_G": 200, "lam_div": 0,
     "lam_clip": 30, "lam_reg": 0.01,
-    "lr": 5e-5, "lr_D": 2e-5, "use_D": True
+    "lr": 5e-5, "lr_D": 2e-5
 }
 
 # 阶段三：精细打磨 + 多样性注入（全部激活）
 stage3 = {
     "lam_L_rec": 0.001, "lam_lpips": 150, "lam_G": 600, "lam_div": 200,
     "lam_clip": 50, "lam_reg": 0.01,
-    "lr": 2e-5, "lr_D": 1e-5, "use_D": True
+    "lr": 2e-5, "lr_D": 1e-5
 }
 
 
@@ -155,8 +155,6 @@ def get_current_weights(epoch):
         for k in cfg:
             if k in prev_cfg:
                 cfg[k] = prev_cfg[k] + (cfg[k] - prev_cfg[k]) * t
-        # use_D 必须是 bool，不能被插值为 float
-        cfg["use_D"] = True if cfg["use_D"] else False
 
     return cfg, stage_name
 
@@ -179,6 +177,7 @@ def loadModel(use_lpips=True):
 
     # 判别器始终初始化（阶段二、三需要）
     D = Discriminator(size=1024, channels_in=3).to(device)
+    D.stddev_group = 2  # 适配 batch_size=2，原默认值 4 会导致 reshape 报错
 
     if use_lpips:
         lpips_fn = LF.LPIPS_AlexNet(device=device)
@@ -293,7 +292,8 @@ def training(CLIPandGAN, birdgeNetwork, optimizer_brig,
             for pg in optimizer_D.param_groups:
                 pg['lr'] = stage_cfg["lr_D"]
 
-        use_D = stage_cfg["use_D"]
+        # Stage2 起启用判别器（权重从 Stage1 值渐增，lam_G 从 0 开始）
+        use_D = stage_name != "Stage1"
 
         # 截断热身：仅在 Stage1 前半段生效，psi 从 0.5 线性增加到 1.0
         if epoch <= truncation_end and stage_name == "Stage1":
@@ -344,8 +344,7 @@ def training(CLIPandGAN, birdgeNetwork, optimizer_brig,
                     style_vector = style_mean + psi * (style_vector - style_mean)
                 fake_imgs = CLIPandGAN.synthesis_net(style_vector.to(device))["img"].clamp(-1, 1)
 
-            # minibatch_discrimination 要求 batch_size >= stddev_group
-            can_use_D = use_D and D is not None and real_imgs.size(0) >= D.stddev_group
+            can_use_D = use_D and D is not None
 
             if can_use_D:
 
