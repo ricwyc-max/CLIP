@@ -177,7 +177,7 @@ def loadModel(use_lpips=True):
 
     # 判别器始终初始化（阶段二、三需要）
     D = Discriminator(size=1024, channels_in=3).to(device)
-    D.stddev_group = 2  # 适配 batch_size=2，原默认值 4 会导致 reshape 报错
+    D.stddev_group = 1  # 对整个 batch 算 std，适配任意 batch_size
 
     if use_lpips:
         lpips_fn = LF.LPIPS_AlexNet(device=device)
