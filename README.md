@@ -1,79 +1,148 @@
-# 项目名称：基于 CLIP 引导的文本生成图像大模型
+# CLIP2GAN：基于 CLIP 引导的图像生成模型
+
 [![查看项目看板](https://img.shields.io/badge/github-Project-blue?logo=github)](https://github.com/ricwyc-max/CLIP)
+
 ---
 
 > **课程**：生成式人工智能  
-> **状态**：已完成 exp1~exp6 消融实验 / 训练流程已跑通  
-> **指导老师**：陈培垠  
-> **指导老师邮箱**：pychen@hhu.edu.cn  
-> **大作业成员邮箱**：134074852@qq.com  
+> **状态**：已完成 exp1~exp6 消融实验，训练/测试流程已跑通  
+> **指导老师**：陈培垠（pychen@hhu.edu.cn）  
+> **成员邮箱**：134074852@qq.com  
 
-
+---
 
 ## 1. 项目简介
 
-本项目旨在构建一个**文本到图像Text-to-Image**的生成模型。在文生图任务中，核心挑战在于如何让模型“理解”自然语言描述，并生成与之语义对齐的高保真图像。
+本项目构建了一个 **文本到图像（Text-to-Image）** 生成模型。核心思路是利用 **CLIP（Contrastive Language-Image Pre-training）** 作为语义桥接器，将文本/图像编码到联合嵌入空间，再通过 **Bridge MLP** 将 CLIP 特征映射为 **MobileStyleGAN** 的 W+ 风格码，最终生成高保真图像。
 
-为此，我们利用 OpenAI 提出的 **CLIP（Contrastive Language-Image Pre-training）** 模型作为核心语义桥接器。CLIP 通过对比学习，将文本和图像映射到同一个联合嵌入空间（Joint Embedding Space），使得“一只戴帽子的猫”的文本特征与对应的图像特征在空间中的距离拉近。
+**整体流程**：
 
-在本项目中，CLIP 将承担以下关键角色：
-1.  **条件引导**：指导生成模型（如 Diffusion GAN 或 Transformer）产生符合文本描述的图像内容。
-2.  **语义损失计算**：计算生成图像与目标文本之间的 CLIP 相似度，作为损失函数的一部分。
+```
+原始图片 / 文本描述 → CLIP Encoder → 512维特征 → Bridge MLP → W+ latent code (23×512) → MobileStyleGAN → 1024×1024 图片
+```
 
-## 2. 背景动机
+其中 CLIP 和 MobileStyleGAN 全程冻结，仅 Bridge MLP 参与训练。
 
-传统的文生图模型（如早期的 GANs）常因文本编码器表达能力不足，导致生成图像出现“语义漂移”。CLIP 在大规模图文对（4亿组）上的预训练特性，使其具备强大的零样本（Zero-shot）泛化能力。通过引入 CLIP，我们希望解决：
+---
 
--   **细粒度对齐**：精确还原文本中的属性（颜色、形状）、数量及关系。
--   **丰富多样性**：利用 CLIP 的泛化能力，生成训练数据中未出现的组合概念。
+## 2. 模型架构
 
-## 3. 模型架构（概览）
+### 核心流程图
 
-*（待补充：此处将放入整体架构图）*
-1. **对比试验**: 
-- **使用基本DCGAN网络进行图像生成、CLIP进行引导(CAFE-GAN, RATLIP等)**
-  - 具体方案：
+```
+┌─────────────────┐    512-dim     ┌──────────────┐    W+ (23×512)    ┌────────────────┐
+│  CLIP Image     │───────────────▶│  Bridge MLP  │─────────────────▶│  MobileStyleGAN │
+│  Text Encoder   │                │  (可训练)     │                  │  (冻结)          │
+│  (冻结)          │                └──────────────┘                  │  SynthesisNet   │
+└─────────────────┘                                                  └────────┬───────┘
+                                                                              │
+                                                                              ▼
+                                                                    ┌─────────────────┐
+                                                                    │  1024×1024 图像  │
+                                                                    └─────────────────┘
+```
 
-- **使用Style-GAN网络进行图像生成、CLIP进行引导（CLIP2GAN）**
-  - 具体方案：
+### 组件说明
 
-- **使用Stable Diffusion网络进行图像生成、CLIP进行引导（ DALL·E 2 、DiffusionCLIP ）**
-  - 具体方案：
+| 组件 | 模型 | 输出维度 | 是否训练 |
+|------|------|---------|---------|
+| 文本/图像编码器 | CLIP ViT-B-32（laion2b） | 512-d | ❌ 冻结 |
+| 特征转换器 | Bridge MLP（12层全连接 + LeakyReLU + PixelNorm） | 23×512-d | ✅ **训练** |
+| 图像生成器 | MobileStyleGAN MobileSynthesisNetwork | 1024×1024 | ❌ 冻结 |
+| 判别器（Stage2-3） | MobileStyleGAN Discriminator | sigmoid | ✅ 训练 |
 
-- **使用Diffusion GAN网络进行图像生成、CLIP进行引导（UFOGen 、clip2latent ）**
-  - 具体方案：
+### 对比试验方案
 
-- **使用Transformer网络进行图像生成、CLIP进行引导（DALL·E）**
-  - 具体方案：
+本项目的最终方案为 **MobileStyleGAN + mobileCLIP（CLIP2GAN）**，以下为调研过的其他技术路线：
 
-- **使用mobileStyleGAN网络进行图像生成、mobileCLIP网络进行图像引导（CLIP2GAN）**
-  - 具体方案：
-1、使用预训练mobileStyleGAN进行图像生成，预训练mobileStyleGAN权重获取参考地址：https://github.com/bes-dev/MobileStyleGAN.pytorch  
-2、使用预训练mobileCLIP进行文本编码，预训练mobileCLIP权重获取参考地址：https://github.com/mlfoundations/open_clip  
-3、自建 Bridge MLP 隐空间向量语义转换层  
-4、进行不同损失函数的消融实验  
-  - 模型输出展示：  
+| 方案 | 生成器 | 引导方式 | 选用原因 |
+|------|--------|---------|---------|
+| CAFE-GAN / RATLIP | DCGAN | CLIP | 基线方案 |
+| CLIP2GAN（**本项目**） | MobileStyleGAN | mobileCLIP | ✅ 轻量、效率高 |
+| DALL·E 2 / DiffusionCLIP | Stable Diffusion | CLIP | 质量高但资源需求大 |
+| UFOGen / clip2latent | Diffusion GAN | CLIP | 收敛快但实现复杂 |
+| DALL·E | Transformer | CLIP | 开创性工作，计算成本高 |
+
+---
+
+## 3. 训练配置
+
+### 训练设备与超参数
+
+| 项目 | 配置 |
+|------|------|
+| GPU | NVIDIA GeForce RTX 4060 Laptop（8GB）（exp1~5，本地）</br>NVIDIA A100-PCIE-40GB（exp6，云端）|
+| 框架 | PyTorch 2.7.1 + CUDA 11.8 |
+| 数据集 | CelebA-HQ（30000 张 1024×1024 人脸图像） |
+| 批次大小 | 8（梯度累积×4，等效 batch_size=32） |
+| 总训练轮数 | 50 |
+| 截断热身 | Stage1 前半段 psi 从 0.5 → 1.0 |
+
+### 三阶段渐进训练（exp6）
+
+| 阶段 | 目标 | L_rec | L_lpips | L_G | L_div | L_clip | L_reg | lr | lr_D |
+|------|------|-------|---------|-----|-------|--------|-------|-----|------|
+| Stage1（ep1-5） | 稳健基础人脸，不开判别器 | 1.0 | 0 | 0 | 0 | 5 | 0.005 | 1e-4 | 0 |
+| Stage2（ep6-25） | 引入结构+对抗细节 | 1 | 1 | 1 | 0 | 1 | 0.01 | 5e-5 | 2e-5 |
+| Stage3（ep26-50） | 精细打磨+多样性 | 1 | 1 | 1 | 1 | 1 | 0.01 | 2e-5 | 1e-5 |
+
+阶段切换时权重线性插值过渡（`warmup_epochs=5`），避免损失突变。
+
+### 损失函数
+
+$$L_{total} = \lambda_{rec} L_{rec} + \lambda_{lpips} L_{lpips} + \lambda_G L_G + \lambda_{div} L_{div} + \lambda_{clip} L_{clip} + \lambda_{reg} L_{reg}$$
+
+| 损失 | 公式 | 作用粒度 | 说明 |
+|------|------|---------|------|
+| L_rec | `MSE(x, x')` | **像素** | 逐像素重建，防止结构偏移 |
+| L_lpips | AlexNet LPIPS | **感知** | 5层特征加权，补偿高频细节 |
+| L_D | `-E[log D(x)] - E[log(1-D(x'))] + λ·GP` | **对抗** | WGAN-GP，单独优化判别器 |
+| L_G | `E[log(1-D(x'))]` | **对抗** | 生成器骗过判别器 |
+| L_div | `d_f / d_I` | **多样性** | 特征扰动 / 图像差异，防模式坍缩 |
+| L_clip | `1 - cos(clip_real, clip_fake)` | **语义** | CLIP 空间余弦对齐 |
+| L_reg | `mean(\|style\|)` | **约束** | W+ 码 L1 稀疏正则 |
+
+**LPIPS 各层特征说明**：
+
+| 层索引 | 输出通道 | 空间分辨率 | 捕获内容 |
+|--------|----------|------------|---------|
+| Layer 1 | 64 | 55×55 | 低级边缘、颜色、方向纹理 |
+| Layer 4 | 192 | 27×27 | 纹理组合、角点、简单形状 |
+| Layer 7 | 384 | 13×13 | 局部结构（眼、鼻等部件雏形） |
+| Layer 9 | 256 | 13×13 | 高级语义特征、区域表示 |
+| Layer 11 | 256 | 13×13 | 接近物体级别的判别信息 |
+
+L_rec（像素）→ L_lpips（感知）→ L_clip（语义），三者从粗到细约束生成质量。
+
+---
+
+## 4. 测试结果
+
+### mobileCLIP 基础测试
 
 | 图片 | 说明 |
 |------|------|
-| ![图片1](./CLIP/mobileCLIP/docs/dog.jpg "测试图片") | mobileCLIP测试图像 |
-| ![图片2](./CLIP/mobileCLIP/docs/test.png "展示结果") | mobileCLIP展示结果 |  
+| ![mobileCLIP测试](./CLIP/mobileCLIP/docs/dog.jpg "测试图片") | mobileCLIP 零样本分类测试 |
+| ![mobileCLIP结果](./CLIP/mobileCLIP/docs/test.png "展示结果") | CLIP softmax 概率输出 |
 
-| 图片 | mobilestyleGAN随机输出结果 |
-|------|------|
-| <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test.png" width="300">  |  <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test1.png" width="300">  |
-| <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test2.png" width="300">  |  <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test3.png" width="300">  |
-| <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test4.png" width="300">  |  <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test5.png" width="300">  |
+### MobileStyleGAN 随机生成
 
-  - CLIP2GAN 推理测试结果展示：
+| 随机种子输出 |
+|-------------|
+| <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test.png" width="240"> <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test1.png" width="240"> <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test2.png" width="240"> |
+| <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test3.png" width="240"> <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test4.png" width="240"> <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test5.png" width="240"> |
 
-**图像重生成**（原图 → CLIP 编码 → Bridge MLP → StyleGAN 重生成）：
+### CLIP2GAN 图像重生成
+
+原图 → CLIP 编码 → Bridge MLP → StyleGAN 重生成：
 
 | 原图 | 重生成结果 |
 |------|-----------|
 | <img src="./test_results/test_checkpoints/recon_img_1081000_real.png" width="300"> | <img src="./test_results/test_checkpoints/recon_img_1082000_real.png" width="300"> |
 
-**文生图**（文本描述 → CLIP 编码 → Bridge MLP → StyleGAN 生成）：
+### CLIP2GAN 文生图
+
+文本描述 → CLIP Text Encoder → Bridge MLP → StyleGAN 生成：
 
 | 文本描述 | 生成结果 |
 |----------|---------|
@@ -86,164 +155,110 @@
 
 | 文生图网格一览 |
 |---------------|
-| <img src="./test_results/test_checkpoints/txt2img_grid.png" width="800"> |
+| <img src="./test_results/test_checkpoints/txt2img_grid.png" width="750"> |
 
-  - 训练设备与超参数：
-
-| 项目 | 配置 |
-|------|------|
-| GPU | NVIDIA GeForce RTX 4060 Laptop GPU(8GB)(exp1~5)(本地) </br> NVIDIA A100-PCIE-40GB(exp6)(云) |
-| 框架 | PyTorch 2.7.1 + CUDA 11.8 |
-| CLIP 模型 | ViT-B-32（laion2b_s34b_b79k），512维输出，冻结 |
-| 生成器 | MobileStyleGAN（FFHQ v2），style_dim=512，输出 1024×1024，冻结 |
-| 判别器 | MobileStyleGAN Discriminator（1024×1024，3通道） |
-| 数据集 | CelebA-HQ（30000 张 1024×1024 人脸图像） |
-
-  - 损失函数与超参数配置（exp6，三阶段渐进训练）：
-
-$$L_{total} = \lambda_{rec} L_{rec} + \lambda_{lpips} L_{lpips} + \lambda_G L_G + \lambda_{div} L_{div} + \lambda_{clip} L_{clip} + \lambda_{reg} L_{reg}$$
-
-| 损失 | 公式 | 说明 |
-|------|------|------|
-| L_rec | `MSE(x, x')` | 像素级重建损失 |
-| L_lpips | AlexNet LPIPS | 感知细节损失 |
-| L_D | `-E[log D(x)] - E[log(1-D(x'))] + λ·GP` | WGAN-GP 判别器损失（单独优化） |
-| L_G | `E[log(1-D(x'))]` | 生成器对抗损失 |
-| L_div | `d_f / d_I` | 特征扰动/图像差异，防模式坍缩 |
-| L_clip | `1 - cos(clip_real, clip_fake)` | CLIP 语义对齐损失 |
-| L_reg | `mean(\|style\|)` | Bridge MLP 输出 L1 稀疏约束 |
-
-**L_lpips（AlexNet LPIPS）各层特征详解**：
-
-LPIPS 从 AlexNet 的 5 个 ReLU 层提取多层特征，逐层 unit normalize 后加权求和。每层捕获不同粒度的感知信息：
-
-| 层索引 | AlexNet 层 | 输出通道 | 空间分辨率 | 特征含义 |
-|--------|------------|----------|------------|----------|
-| 1 | Conv1(11×11, s=4) → ReLU | 64 | 55×55 | **低级边缘/颜色/纹理** — 大卷积核捕获粗粒度颜色块与方向边缘 |
-| 4 | Conv2(5×5) → ReLU | 192 | 27×27 | **纹理组合/简单形状** — 组合边缘形成纹理模式、角点 |
-| 7 | Conv3(3×3) → ReLU | 384 | 13×13 | **中级语义特征** — 检测局部结构（眼睛、车轮等部件雏形） |
-| 9 | Conv4(3×3) → ReLU | 256 | 13×13 | **高级语义特征** — 更抽象的部件/区域表示 |
-| 11 | Conv5(3×3) → ReLU | 256 | 13×13 | **最高级语义特征** — 接近物体级别的判别信息 |
-
-- **Layer 1~4（浅层）**：感知**纹理、边缘保真度**，生成图模糊或纹理丢失时 loss 明显增大
-- **Layer 7（中层）**：过渡层，平衡局部结构与语义
-- **Layer 9~11（深层）**：感知**语义结构一致性**，物体形状扭曲或部件错位时 loss 增大
-- **权重 w_l**：默认冻结（`train_w=False`），5 层等权求和；若微调则自动学习各层感知重要性
-
-**LPIPS 与 L_rec、L_clip 的配合**：三者从**像素 → 感知 → 语义**三个粒度约束生成质量。L_rec（L2）逐像素对齐但易过度平滑，L_lpips 补偿高频细节，L_clip 保证全局语义一致。
-
-**三阶段渐进训练策略（exp6）**：
-
-| 阶段 | 目标 | L_rec | L_lpips | L_G | L_div | L_clip | L_reg | lr | lr_D |
-|------|------|-------|---------|-----|-------|--------|-------|-----|------|
-| Stage1 (ep1-5) | 稳建基础人脸 | 1.0 | 0 | 0 | 0 | 5 | 0.005 | 1e-4 | 0 |
-| Stage2 (ep6-25) | 引入结构细节 | 1 | 1 | 1 | 0 | 1 | 0.01 | 5e-5 | 2e-5 |
-| Stage3 (ep26-50) | 精细打磨+多样性 | 1 | 1 | 1 | 1 | 1 | 0.01 | 2e-5 | 1e-5 |
-
-| 超参数 | 值 | 说明 |
-|--------|-----|------|
-| `batch_size` | 8 | 批次大小 |
-| `accum_steps` | 4 | 梯度累积步数（等效 batch_size=32） |
-| `total_epochs` | 50 | 总训练轮数 |
-| `warmup_epochs` | 5 | 阶段切换平滑过渡轮数 |
-| `truncation_psi_start` | 0.5 | 截断热身起始值（Stage1 前半段） |
-
-  - 模型架构：
-
-
-
-**核心流程（CLIP2GAN 方案）**：
-```
-原始图片 (3, 1024, 1024)
-    → CLIP Image Encoder → img_embedding (512维)
-    → [Bridge MLP] → W+ latent code (23×512维)
-    → MobileStyleGAN → 生成图片 (3, 1024, 1024)
-```
-1.  **图像编码**：输入图片 → CLIP ViT-B-32 → 512维图像特征（冻结，不训练）
-2.  **特征转换**：图像特征 → Bridge MLP（12层全连接） → W+ latent code（23×512维，**可训练**）
-3.  **图像生成**：W+ latent code → MobileStyleGAN SynthesisNetwork → 1024×1024图片（冻结，不训练）
-4.  **损失函数**（对齐 CLIP2GAN 原文公式 $L_{min} = L_{rec} + \lambda_{lpips}L_{lpips} + \lambda_G L_G + \lambda_{div}L_{div}$）：
-    - **L_rec**：重建损失（MSE），衡量生成图与原图的像素级差异
-    - **L_lpips**：感知损失（AlexNet LPIPS），关注生成图细节质量
-    - **L_D**：WGAN-GP 判别器损失（标准GAN损失 + 梯度惩罚）
-    - **L_G**：生成器对抗损失（non-saturating log）
-    - **L_div**：多样性损失，防止模式坍缩
-    - **L_clip**：CLIP 余弦相似度损失，语义对齐
-    - **L_reg**：L1 正则，约束 Bridge MLP 输出稀疏
-5.  **训练策略**：
-    - 三阶段渐进训练：Stage1（纯重建）→ Stage2（感知+对抗）→ Stage3（多样性+精细打磨）
-    - 梯度累积：accum_steps=4，等效 batch_size=32
-    - 阶段切换平滑过渡：warmup_epochs=5 线性插值
-    - 截断热身：Stage1 前半段 psi 从 0.5 线性增加到 1.0，保证初期生成质量
-    - Step1 训练判别器 D，Step2 训练 Bridge MLP，CLIP 和 MobileStyleGAN 全程冻结
-    - 日志增强：每 batch 打印阶段名、psi 值，梯度更新时打印提示
-6.  **消融实验**：对不同损失函数组合进行消融实验（exp1 ~ exp6）
-
-**基线模型参考**：
--   （例如：DALL·E 2， Stable Diffusion， 或 简单的 Conditional GAN + CLIP）
-- CLIP = 判别式模型（理解/匹配）
-- DALL·E / Stable Diffusion / Style-GAN = 生成式模型（创造/生成）
-- 用 CLIP 作为“导师”来训练一个生成式模型
-
-## 4. 实验计划
-
--   **数据集**：
-CelebAMask-HQ(https://github.com/switchablenorms/CelebAMask-HQ)
-CelebA-HQ(git clone https://www.modelscope.cn/datasets/OmniData/CelebA-HQ.git) (https://huggingface.co/datasets/iamivan11/CelebA-HQ-zip)
--   **评估指标**：FID（图像质量）、CLIP-Score（语义一致性）、人工评估
--   **对比实验**：CLIP 引导的不同质量生成器对比
--   **消融实验**：无 CLIP 引导的生成器 vs. 有 CLIP 引导的生成器
+---
 
 ## 5. 当前进度
 
--   [x] 文献调研：理解 CLIP 的对比学习原理及在文生图中的应用
--   [x] 环境配置与 CLIP 预训练权重加载
--   [x] 搭建生成器骨架（MobileStyleGAN）
--   [x] 封装 CLIP2GAN 统一接口（CLIP + MobileStyleGAN）
--   [x] 实现损失函数模块（L_rec、L_D、L_G、L_lpips、L_div、L_clip、L_reg）
--   [x] Bridge MLP 改为输出 W+ latent code（23×512维）
--   [x] 搭建训练流程（消融实验配置、图像保存、损失记录、模型保存）
--   [x] 消融实验 exp1 ~ exp6 全部完成（RTX 4060 本地 + A100 云端）
--   [x] 三阶段渐进训练（exp6）：梯度累积、阶段切换平滑过渡、截断热身
--   [ ] 评估指标实现（FID、CLIP-Score）
--   [ ] 文本到图像推理
+- [x] 文献调研与方案选型
+- [x] CLIP 预训练权重加载（本地离线缓存）
+- [x] MobileStyleGAN 生成器集成
+- [x] 封装 CLIP2GAN 统一接口
+- [x] 损失函数模块（7种损失）
+- [x] Bridge MLP 设计（12层，输出 23×512 W+ code）
+- [x] 三阶段渐进训练（梯度累积 + 阶段平滑 + 截断热身）
+- [x] 消融实验 exp1~exp6 全部完成（本地 RTX 4060 + 云端 A100）
+- [x] 图像重生成 & 文生图推理测试
+- [ ] 评估指标（FID、CLIP-Score）
+- [ ] 文本到图像在线推理优化
+
+---
 
 ## 6. 如何运行
 
-**环境安装**
+### 环境安装
+
 ```bash
 git clone [仓库地址]
 cd CLIP
 pip install -r requirements.txt
 ```
 
-**数据集准备**
+### 数据集准备
 
 将 CelebA-HQ 图片放入 `dataset/CelebAMask-HQ/CelebAMask-HQ/CelebAMask-HQ/CelebA-HQ-img/` 目录。
 
-**训练**
+### 训练
+
 ```bash
-# 修改 training.py 顶部的统一参数配置（exp_name、total_epochs、三阶段权重等）
 python training.py
 ```
 
 训练产物输出到 `results/{exp_name}/`：
 - `images/` — 每轮 batch 网格图 + 每 1000 张的单张生成图
-- `checkpoints/` — best_bridge.pth（最佳权重）、last_bridge.pth（最终权重）
+- `checkpoints/` — `best_bridge.pth`（最佳权重）、`last_bridge.pth`（最终权重）
 - `losses.csv` — 每轮损失记录
 - `loss_curve.png` — 损失曲线图
 
-**推理测试**
+### 推理测试
+
+**PyCharm 直接运行**（推荐）：
 ```bash
-python CLIP2GAN.py
+# 修改 testing.py 顶部配置区的 BRIDGE_WEIGHT_PATH 后，右键 Run
+python testing.py
 ```
 
-## Requirements
+**命令行模式**：
+```bash
+# 图像重生成测试
+python testing.py --mode recon --weight results/exp6/checkpoints/best_bridge.pth
+
+# 文生图测试
+python testing.py --mode txt2img --weight results/exp6/checkpoints/best_bridge.pth
+```
+
 ---
 
-主要依赖：
+## 7. 项目架构
+
+```text
+CLIP
+├── CLIP2GAN.py             统一封装类（CLIP + MobileStyleGAN）
+├── bridgeNetwork.py         Bridge MLP（12层全连接，512→23×512）
+├── lossFunction.py          损失函数模块（L_rec、L_D、L_G、LPIPS、L_div、L_clip、L_reg）
+├── training.py              三阶段渐进训练
+├── testing.py               PyCharm友好测试模块
+├── LoadDatasets.py          数据集加载
+├── CLIP/mobileCLIP/
+│   ├── model/               CLIP 预训练权重（本地缓存）
+│   └── openclip.py          CLIP 零样本测试
+├── StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/
+│   ├── core/                模型定义（MappingNetwork、SynthesisNetwork、Discriminator）
+│   └── model/               MobileStyleGAN 预训练权重
+├── dataset/                 CelebA-HQ 数据集
+├── results/                 训练产物（exp1~exp6）
+├── test_results/            推理测试结果
+└── docs/                    项目报告（Word + Markdown）
+```
+
+---
+
+## 8. 团队分工
+
+| 成员 | 职责 |
+|------|------|
+| **吴尧承** | CLIP 嵌入提取 & 损失函数模块、Bridge MLP 设计、生成器架构集成 & 数据处理、训练流程调试 & 消融实验运行（exp1~6） |
+| **刘健韬** | 研究背景 & 技术逻辑梳理、材料整合、结题报告撰写 |
+
+---
+
+## 依赖
+
+主要依赖 `open_clip_torch`、`torch`、`torchvision`、`pillow`、`numpy`、`matplotlib`、`opencv-python` 等。完整列表见 [`requirements.txt`](./requirements.txt)。
+
 <details>
-  <summary>📂 点击展开/收起：具体依赖（太长已折叠）</summary>  
+  <summary>📂 点击展开完整依赖</summary>
 
 ```text
 Package                   Version
@@ -345,7 +360,7 @@ setuptools                80.9.0
 shellingham               1.5.4
 simplejson                4.1.1
 six                       1.17.0
-smmap                     5.0.3
+smmap                     4.0.3
 soupsieve                 2.8.3
 swagger-spec-validator    3.0.4
 sympy                     1.14.0
@@ -367,125 +382,36 @@ wheel                     0.47.0
 yarl                      1.22.0
 zipp                      3.23.1
 ```
-</details> 
+</details>
 
-详细版本见 `requirements.txt`。
-
-## 7. 团队分工
 ---
-
--   成员 吴尧承：负责 CLIP 嵌入提取与损失函数模块搭建、Bridge MLP 网络设计、生成器架构集成与数据集处理，调试训练流程并实际运行消融实验（exp1~exp6）
--   成员 刘健韬：负责系统梳理研究背景与技术逻辑，整合材料并撰写结题报告
-
-## 8. 项目架构
----
-```text
-CLIP
-├── CLIP2GAN.py         CLIP + MobileStyleGAN 统一封装类
-├── bridgeNetwork.py    Bridge MLP 桥接网络（12层全连接，512→23×512 W+ latent code）
-├── lossFunction.py     损失函数模块（L_rec、L_D、L_G、L_lpips、L_div、L_clip、L_reg）
-├── training.py         训练模块（三阶段渐进训练、消融实验配置）
-├── LoadDatasets.py     数据集加载模块
-├── testing.py          测试模块
-├── CLIP/               CLIP 模型与测试
-│   └── mobileCLIP/
-│       ├── model/      CLIP 预训练权重
-│       └── openclip.py CLIP 测试程序
-├── StyleGAN/           MobileStyleGAN 代码与权重
-│   └── mobileStyleGAN/MobileStyleGAN.pytorch/
-│       ├── core/       模型定义（MappingNetwork、SynthesisNetwork、Discriminator）
-│       └── model/      预训练权重 (.ckpt)
-├── dataset/            CelebA-HQ 数据集
-├── results/            训练产物（exp1~exp6，含 images、checkpoints）
-├── docs/               项目报告（完整版 Word + Markdown）
-└── 参考文献/           相关论文（6篇）
-```
 
 ## Citing
----
-```text
+
+```bibtex
 @software{ilharco_gabriel_2021_5143773,
-  author       = {Ilharco, Gabriel and
-                  Wortsman, Mitchell and
-                  Wightman, Ross and
-                  Gordon, Cade and
-                  Carlini, Nicholas and
-                  Taori, Rohan and
-                  Dave, Achal and
-                  Shankar, Vaishaal and
-                  Namkoong, Hongseok and
-                  Miller, John and
-                  Hajishirzi, Hannaneh and
-                  Farhadi, Ali and
-                  Schmidt, Ludwig},
+  author       = {Ilharco, Gabriel and Wortsman, Mitchell and Wightman, Ross and others},
   title        = {OpenCLIP},
-  month        = jul,
-  year         = 2021,
-  note         = {If you use this software, please cite it as below.},
-  publisher    = {Zenodo},
-  version      = {0.1},
-  doi          = {10.5281/zenodo.5143773},
-  url          = {https://doi.org/10.5281/zenodo.5143773}
-}
-```
-```text
-@inproceedings{cherti2023reproducible,
-  title={Reproducible scaling laws for contrastive language-image learning},
-  author={Cherti, Mehdi and Beaumont, Romain and Wightman, Ross and Wortsman, Mitchell and Ilharco, Gabriel and Gordon, Cade and Schuhmann, Christoph and Schmidt, Ludwig and Jitsev, Jenia},
-  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
-  pages={2818--2829},
-  year={2023}
-}
-```
-```text
-@inproceedings{Radford2021LearningTV,
-  title={Learning Transferable Visual Models From Natural Language Supervision},
-  author={Alec Radford and Jong Wook Kim and Chris Hallacy and A. Ramesh and Gabriel Goh and Sandhini Agarwal and Girish Sastry and Amanda Askell and Pamela Mishkin and Jack Clark and Gretchen Krueger and Ilya Sutskever},
-  booktitle={ICML},
-  year={2021}
-}
-```
-```text
-@inproceedings{schuhmann2022laionb,
-  title={{LAION}-5B: An open large-scale dataset for training next generation image-text models},
-  author={Christoph Schuhmann and
-          Romain Beaumont and
-          Richard Vencu and
-          Cade W Gordon and
-          Ross Wightman and
-          Mehdi Cherti and
-          Theo Coombes and
-          Aarush Katta and
-          Clayton Mullis and
-          Mitchell Wortsman and
-          Patrick Schramowski and
-          Srivatsa R Kundurthy and
-          Katherine Crowson and
-          Ludwig Schmidt and
-          Robert Kaczmarczyk and
-          Jenia Jitsev},
-  booktitle={Thirty-sixth Conference on Neural Information Processing Systems Datasets and Benchmarks Track},
-  year={2022},
-  url={https://openreview.net/forum?id=M3Y74vmsMcY}
-}
-```
-```text
-@misc{belousov2021mobilestylegan,
-      title={MobileStyleGAN: A Lightweight Convolutional Neural Network for High-Fidelity Image Synthesis},
-      author={Sergei Belousov},
-      year={2021},
-      eprint={2104.04767},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV}
+  month        = jul, year = 2021,
+  publisher    = {Zenodo}, version = {0.1},
+  doi          = {10.5281/zenodo.5143773}
 }
 
-@article{BELOUSOV2021100115,
-      title = {MobileStyleGAN.pytorch: PyTorch-based toolkit to compress StyleGAN2 model},
-      journal = {Software Impacts},
-      year = {2021},
-      issn = {2665-9638},
-      doi = {https://doi.org/10.1016/j.simpa.2021.100115},
-      url = {https://www.sciencedirect.com/science/article/pii/S2665963821000452},
-      author = {Sergei Belousov},
+@inproceedings{cherti2023reproducible,
+  title={Reproducible scaling laws for contrastive language-image learning},
+  author={Cherti, Mehdi and Beaumont, Romain and Wightman, Ross and others},
+  booktitle={CVPR}, pages={2818--2829}, year={2023}
+}
+
+@inproceedings{Radford2021LearningTV,
+  title={Learning Transferable Visual Models From Natural Language Supervision},
+  author={Alec Radford and Jong Wook Kim and Chris Hallacy and others},
+  booktitle={ICML}, year={2021}
+}
+
+@misc{belousov2021mobilestylegan,
+  title={MobileStyleGAN: A Lightweight Convolutional Neural Network for High-Fidelity Image Synthesis},
+  author={Sergei Belousov}, year={2021},
+  eprint={2104.04767}, archivePrefix={arXiv}
 }
 ```
