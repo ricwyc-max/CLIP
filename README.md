@@ -65,6 +65,29 @@
 | <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test2.png" width="300">  |  <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test3.png" width="300">  |
 | <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test4.png" width="300">  |  <img src="./StyleGAN/mobileStyleGAN/MobileStyleGAN.pytorch/testimg/test5.png" width="300">  |
 
+  - CLIP2GAN 推理测试结果展示：
+
+**图像重生成**（原图 → CLIP 编码 → Bridge MLP → StyleGAN 重生成）：
+
+| 原图 | 重生成结果 |
+|------|-----------|
+| <img src="./test_results/test_checkpoints/recon_img_1081000_real.png" width="300"> | <img src="./test_results/test_checkpoints/recon_img_1082000_real.png" width="300"> |
+
+**文生图**（文本描述 → CLIP 编码 → Bridge MLP → StyleGAN 生成）：
+
+| 文本描述 | 生成结果 |
+|----------|---------|
+| a black man | <img src="./test_results/test_checkpoints/txt2img_0.png" width="200"> |
+| a white young woman with a blonde hair and a green eyes | <img src="./test_results/test_checkpoints/txt2img_1.png" width="200"> |
+| a make up woman with blonde curly hair red lips and a pair of dimple | <img src="./test_results/test_checkpoints/txt2img_2.png" width="200"> |
+| a young beautiful woman with black straight hair and a blue eyes | <img src="./test_results/test_checkpoints/txt2img_3.png" width="200"> |
+| detailed old man description (wrinkles, white hair, sunken eyes) | <img src="./test_results/test_checkpoints/txt2img_4.png" width="200"> |
+| detailed young woman description (delicate face, bright eyes, dimples) | <img src="./test_results/test_checkpoints/txt2img_5.png" width="200"> |
+
+| 文生图网格一览 |
+|---------------|
+| <img src="./test_results/test_checkpoints/txt2img_grid.png" width="800"> |
+
   - 训练设备与超参数：
 
 | 项目 | 配置 |
