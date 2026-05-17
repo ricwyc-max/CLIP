@@ -54,7 +54,8 @@ BRIDGE_WEIGHT_PATH = r".\archive\checkpoints\last_bridge.pth"
 TEST_MODE = "all"
 
 # 测试图片路径（图像重生成用）— None 则使用 CLIP/mobileCLIP/docs/ 下的默认图
-TEST_IMAGES = "test_results"
+# 可填: None, 单张路径 "path/to/img.jpg", 或多张 ["a.jpg", "b.jpg"]
+TEST_IMAGES = [r".\test_results\img_1081000_real.png",r".\test_results\img_1082000_real.png"]
 
 # 测试文本（文生图用）— None 则使用内置默认文本
 TEST_TEXTS = None
@@ -64,6 +65,11 @@ SAVE_DIR = "test_results"
 
 # 截断系数 (0.0~1.0)，1.0=无截断
 TRUNCATION_PSI = 1.0
+
+# 特征噪声强度（模仿 training 多样性损失，每次生成加不同噪声）
+# 0.0=关闭噪声（确定性生成），建议 0.05~0.2
+RECON_NOISE_SCALE = 0.0    # 图像重生成
+TXT2IMG_NOISE_SCALE = 0.005  # 文生图
 
 
 # ============================================================================
@@ -114,8 +120,17 @@ def clip_preprocess(imgs_01):
 
 
 @torch.no_grad()
-def generate_from_feat(clip2gan, bridge, feat, truncation_psi=1.0):
-    """CLIP 特征 → Bridge MLP → W+ → StyleGAN → 图片"""
+def generate_from_feat(clip2gan, bridge, feat, truncation_psi=1.0, noise_scale=0.1):
+    """
+    CLIP 特征 → Bridge MLP → W+ → StyleGAN → 图片
+
+    参数:
+        noise_scale: 对 feat 加噪的强度，模仿 training 中的多样性损失。
+                     每次调用加不同噪声，保证同文本生成不同结果。
+                     设为 0 则关闭噪声。
+    """
+    if noise_scale > 0:
+        feat = feat + torch.randn_like(feat) * noise_scale
     styles = bridge(feat)
     if truncation_psi < 1.0:
         style_mean = clip2gan.style_mean.to(styles.device)
@@ -166,7 +181,9 @@ def test_reconstruction(clip2gan, bridge, image_path, truncation_psi=1.0, save_d
     img_feat = clip2gan.encode_image(img_clip_in)
 
     # 生成
-    fake_imgs, styles = generate_from_feat(clip2gan, bridge, img_feat, truncation_psi=truncation_psi)
+    fake_imgs, styles = generate_from_feat(clip2gan, bridge, img_feat,
+                                            truncation_psi=truncation_psi,
+                                            noise_scale=RECON_NOISE_SCALE)
     fake_01 = (fake_imgs + 1) / 2
 
     # 评估
@@ -182,8 +199,8 @@ def test_reconstruction(clip2gan, bridge, image_path, truncation_psi=1.0, save_d
     # ---- 弹窗显示 ----
     show_images(
         [img_orig, img_fake],
-        titles=[f"原图", f"重生成  cos_sim={cos_sim:.4f}"],
-        suptitle=f"图像重生成测试：{os.path.basename(image_path)}"
+        titles=[f"Original", f"Reconstructed  cos_sim={cos_sim:.4f}"],
+        suptitle=f"Reconstruction: {os.path.basename(image_path)}"
     )
 
     # ---- 保存 ----
@@ -212,7 +229,9 @@ def test_reconstruction(clip2gan, bridge, image_path, truncation_psi=1.0, save_d
 def test_text_to_image(clip2gan, bridge, texts, truncation_psi=1.0, save_dir="test_results"):
     """测试文生图"""
     text_feat = clip2gan.encode_text(texts)
-    fake_imgs, styles = generate_from_feat(clip2gan, bridge, text_feat, truncation_psi=truncation_psi)
+    fake_imgs, styles = generate_from_feat(clip2gan, bridge, text_feat,
+                                            truncation_psi=truncation_psi,
+                                            noise_scale=TXT2IMG_NOISE_SCALE)
 
     # 图文相似度
     fake_01 = (fake_imgs + 1) / 2
@@ -260,7 +279,7 @@ def test_text_to_image(clip2gan, bridge, texts, truncation_psi=1.0, save_dir="te
     n_rows = (n_show + n_cols - 1) // n_cols
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 5 * n_rows))
     axes = axes.flatten() if n_show > 1 else [axes]
-    fig.suptitle("文生图测试结果", fontsize=14)
+    fig.suptitle("Text-to-Image Results", fontsize=14)
     for i in range(n_show):
         axes[i].imshow(imgs_np[i])
         axes[i].axis("off")
@@ -305,7 +324,11 @@ def main():
         print(f"{'=' * 60}")
 
         if TEST_IMAGES:
-            image_paths = TEST_IMAGES
+            # 支持单张路径字符串和路径列表
+            if isinstance(TEST_IMAGES, str):
+                image_paths = [TEST_IMAGES]
+            else:
+                image_paths = list(TEST_IMAGES)
         else:
             # 使用默认测试图片
             test_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "CLIP", "mobileCLIP", "docs")
@@ -328,12 +351,12 @@ def main():
         print(f"{'=' * 60}")
 
         texts = TEST_TEXTS or [
-            "a person with smile",
-            "a young man",
-            "a woman with blonde hair",
-            "a person wearing glasses",
-            "an old person",
-            "a person with beard",
+            "a black man",
+            "a white yound woman with a blonde hair and a green eyes",
+            "a make up woman with blonde curly hair red lips and a pair of dimple",
+            "a yound beautiful woman with black straight hair and a blue eyes",
+            "The old man is in his eighties. His face is covered with deep wrinkles, especially around the eyes and mouth. Crow's feet spread from the corners of his eyes, and frown lines are etched across his forehead. His skin is loose and sagging on his cheeks and neck, with dark age spots scattered here and there. His hair is completely white, thin and dry, combed flat against his scalp. His eyes are sunken and framed by heavy, droopy eyelids. His nose is large and slightly bulbous at the tip. His lips are thin and pale, almost disappearing into the wrinkles around his mouth. His hands are bony, with prominent veins and knobby knuckles.",
+            "She is a stunningly beautiful young woman. She has a delicate oval face with smooth, fair skin. Her big, expressive eyes are as bright as stars, framed with long, curly eyelashes. She has a high-bridged nose and naturally red, full lips that form a perfect cupid's bow. Her shiny, dark brown hair falls in soft waves over her shoulders. When she smiles, two sweet dimples appear on her cheeks, making her look both charming and approachable."
         ]
         test_text_to_image(clip2gan, bridge, texts,
                            truncation_psi=TRUNCATION_PSI, save_dir=save_dir)
