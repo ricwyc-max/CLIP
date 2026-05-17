@@ -24,12 +24,11 @@ _MOBILE_STYLEGAN_ROOT = os.path.join(
 if _MOBILE_STYLEGAN_ROOT not in sys.path:
     sys.path.insert(0, _MOBILE_STYLEGAN_ROOT)
 
-if "HF_HUB_OFFLINE" in os.environ:
-    del os.environ["HF_HUB_OFFLINE"]
 os.environ['HF_HOME'] = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     'CLIP', 'mobileCLIP', 'model'
 )
+os.environ['HF_HUB_OFFLINE'] = "1"
 
 
 
